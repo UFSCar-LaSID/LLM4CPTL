@@ -579,14 +579,14 @@ def run(args, verbose=False):
             figure = visual_plt.plot_lines(
                 plot_ade_list, x_axes=metric_dict["x_task"],
                 line_names=["task {}".format(i+1) for i in range(tasks)],
-                title="ADE for each tasks", xlabel="Tasks", ylabel="ADE", ylim=(0, higher_ymax)
+                title="ADE for each tasks", xlabel="Tasks", ylabel="ADE", ylim=(0, higher_ymax+1)
             )
             figure_list.append(figure)
             
             figure = visual_plt.plot_lines(
                 plot_fde_list, x_axes=metric_dict["x_task"],
                 line_names=["task {}".format(i+1) for i in range(tasks)],
-                title="FDE for each tasks", xlabel="Tasks", ylabel="FDE", ylim=(0, higher_ymax)
+                title="FDE for each tasks", xlabel="Tasks", ylabel="FDE", ylim=(0, higher_ymax+1)
             )
             figure_list.append(figure)
                         
@@ -597,14 +597,14 @@ def run(args, verbose=False):
             figure = visual_plt.plot_lines(
                 [metric_dict["average_ade"]], x_axes=metric_dict["x_task"],
                 line_names=["Average ade all tasks so far"],
-                title="Average ADE", xlabel="Tasks", ylabel="ADE", ylim=(0, higher_ymax)
+                title="Average ADE", xlabel="Tasks", ylabel="ADE", ylim=(0, higher_ymax+1)
             )
             figure_list.append(figure)
 
             figure = visual_plt.plot_lines(
                 [metric_dict["average_fde"]], x_axes=metric_dict["x_task"],
                 line_names=["Average fde all tasks so far"],
-                title="Average FDE", xlabel="Tasks", ylabel="FDE", ylim=(0, higher_ymax)
+                title="Average FDE", xlabel="Tasks", ylabel="FDE", ylim=(0, higher_ymax+1)
             )
             figure_list.append(figure)
 
