@@ -12,11 +12,11 @@
     conda create -n cptlsgr python=3.6.13 -y
     conda activate cptlsgr
     ```
-    3.1.  Instalation with conda:
+    3.1.  Packages instalation using conda:
      ```
       conda install numpy=1.19.5 pandas=1.1.5 matplotlib=3.3.4 pillow=8.2.0 tqdm=4.61.1 -c conda-forge -y
      ```
-    3.2.  Instalation with pip:
+    3.2.  Packages instalation using pip:
      ```
      python -m pip install torch==1.7.1+cu110 torchvision==0.8.2+cu110 torchaudio==0.7.2 -f https://download.pytorch.org/whl/torch_stable.html
      ```
