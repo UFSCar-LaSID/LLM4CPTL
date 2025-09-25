@@ -27,3 +27,7 @@
         pyparsing==2.4.7 pyzmq==22.1.0 scipy==1.5.4 torchfile==0.1.0 tornado==6.1 traitlets==4.3.3 \
         typing-extensions==3.10.0.0 urllib3==1.26.5 visdom==0.1.8.9 wcwidth==0.2.5 websocket-client==1.1.0 tensorboard==2.10.1
      ```
+4. Create a folder for logs:
+   ```
+   mkdir cptl_with_social_gr/logs
+   ```
