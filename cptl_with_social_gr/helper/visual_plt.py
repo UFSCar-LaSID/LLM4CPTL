@@ -110,6 +110,12 @@ def plot_lines(list_with_lines, x_axes=None, line_names=None, colors=None, title
     # -set x-axis to log-scale
     if x_log:
         axarr.set_xscale('log')
-
+    
+    # -set x-axis sticks
+    axarr.set_xticks(np.arange(min(x_axes), max(x_axes)+1, 1))
+    
+    # -add grid
+    axarr.grid(True, which='both')
+    
     # return the figure
     return f
