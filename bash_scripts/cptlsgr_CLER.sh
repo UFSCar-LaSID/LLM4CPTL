@@ -34,10 +34,10 @@ cd $user_root_folder/mestrado/cptl_with_social_gr
 # Main script execution:
 python $python_script \
     --method=continual_learning \
-		--replay=exemplars \
-		--time \
-		--pdf \
-		--metrics
+	--replay=exemplars \
+	--time \
+	--pdf \
+	--metrics
 
 # Virtual environment:
 conda deactivate
