@@ -1,6 +1,6 @@
 # LLM4CPTL: Large Language Models for Continuous Pedestrian Trajectory Learning
 
-All scripts were originally developed and executed in a high performance computing (HPC) system named Lovelace. The system is hosted by the [Centros Nacionais de Processamento de Alto Desempenho de São Paulo (CENAPAD-SP)](https://www.cenapad.unicamp.br/), which is part of the [Sistema Nacional de Processamento de Alto Desempenho (SINAPAD)](https://www.lncc.br/sinapad/).
+All scripts were executed in a high performance computing (HPC) system named Lovelace. The system is hosted by the [Centros Nacionais de Processamento de Alto Desempenho de São Paulo (CENAPAD-SP)](https://www.cenapad.unicamp.br/), which is part of the [Sistema Nacional de Processamento de Alto Desempenho (SINAPAD)](https://www.lncc.br/sinapad/).
 
 ## Setup
 
