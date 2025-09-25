@@ -4,8 +4,8 @@
 #PBS -N cptlsgr
 #PBS -q testegpu
 #PBS -l nodes=1:ppn=8
-#PBS -e /home/lovelace/proj/proj1034/mtsvvb/mestrado/logs/cptlsgr_IL_inD_inD_error.log
-#PBS -o /home/lovelace/proj/proj1034/mtsvvb/mestrado/logs/cptlsgr_IL_inD_inD_output.log
+#PBS -e /home/lovelace/proj/proj1034/mtsvvb/LLM4CPTL/logs/cptlsgr_IL_inD_inD_error.log
+#PBS -o /home/lovelace/proj/proj1034/mtsvvb/LLM4CPTL/logs/cptlsgr_IL_inD_inD_output.log
 #PBS -m abe
 #PBS -k oed
 
@@ -14,8 +14,8 @@ unset CUDA_VISIBLE_DEVICES
 
 # Variables:
 user_root_folder=/home/lovelace/proj/proj1034/mtsvvb
-python_script=$user_root_folder/mestrado/cptl_with_social_gr/main.py
-python_script_2=$user_root_folder/mestrado/cptl_with_social_gr/evaluate_batch_learning.py
+python_script=$user_root_folder/LLM4CPTL/cptl_with_social_gr/main.py
+python_script_2=$user_root_folder/LLM4CPTL/cptl_with_social_gr/evaluate_batch_learning.py
 dataset_name_train=inD
 dataset_name_test=inD
 
@@ -32,7 +32,7 @@ conda activate cptlsgr
 chmod 777 $python_script $python_script_2
 
 # Muda para o diret�rio de trabalho:
-cd $user_root_folder/mestrado/cptl_with_social_gr
+cd $user_root_folder/LLM4CPTL/cptl_with_social_gr
 
 # Main script execution:
 python $python_script \
