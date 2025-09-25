@@ -7,6 +7,7 @@
 #PBS -e /home/lovelace/proj/proj1034/mtsvvb/mestrado/logs/cptlsgr_IL_ETH_ETH_error.log
 #PBS -o /home/lovelace/proj/proj1034/mtsvvb/mestrado/logs/cptlsgr_IL_ETH_ETH_output.log
 #PBS -m abe
+#PBS -k oed
 
 # CUDA-specific commands:
 unset CUDA_VISIBLE_DEVICES
@@ -36,14 +37,14 @@ cd $user_root_folder/mestrado/cptl_with_social_gr
 # Main script execution:
 python $python_script \
     --method=batch_learning \
-		--log_dir=$dataset_name_train \
+	--log_dir=$dataset_name_train \
     --dataset_name=$dataset_name_train \
-		--time \
-		--pdf \
-		--metrics
+	--time \
+	--pdf \
+	--metrics
    
 python $python_script_2 \
-		--log_dir=$dataset_name_train \
+	--log_dir=$dataset_name_train \
     --dataset_name_train=$dataset_name_train \
     --dataset_name_test=$dataset_name_test
 
