@@ -1,4 +1,4 @@
-# Large Language Models for Continuous Pedestrian Trajectory Learning (LLM4CPTL)
+# LLM4CPTL: Large Language Models for Continuous Pedestrian Trajectory Learning
 
 1.  Install conda or miniconda;
 
