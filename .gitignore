@@ -3,6 +3,13 @@
 *.log
 IL_*
 CL_*
+results/
+plots/
+runs/
+ETH/
+UCY/
+inD/
+INTERACTION/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
