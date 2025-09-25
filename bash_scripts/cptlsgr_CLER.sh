@@ -4,8 +4,8 @@
 #PBS -N cptlsgr
 #PBS -q testegpu
 #PBS -l nodes=1:ppn=8
-#PBS -e /home/lovelace/proj/proj1034/mtsvvb/mestrado/logs/cptlsgr_CLER_error.log
-#PBS -o /home/lovelace/proj/proj1034/mtsvvb/mestrado/logs/cptlsgr_CLER_output.log
+#PBS -e /home/lovelace/proj/proj1034/mtsvvb/LLM4CPTL/logs/cptlsgr_CLER_error.log
+#PBS -o /home/lovelace/proj/proj1034/mtsvvb/LLM4CPTL/logs/cptlsgr_CLER_output.log
 #PBS -m abe
 #PBS -k oed
 
@@ -14,7 +14,7 @@ unset CUDA_VISIBLE_DEVICES
 
 # Variables:
 user_root_folder=/home/lovelace/proj/proj1034/mtsvvb
-python_script=$user_root_folder/mestrado/cptl_with_social_gr/main.py
+python_script=$user_root_folder/LLM4CPTL/cptl_with_social_gr/main.py
 
 # Modules:
 module load miniconda3/22.11.1-gcc-9.4.0
@@ -29,7 +29,7 @@ conda activate cptlsgr
 chmod 777 $python_script
 
 # Muda para o diretório de trabalho:
-cd $user_root_folder/mestrado/cptl_with_social_gr
+cd $user_root_folder/LLM4CPTL/cptl_with_social_gr
 
 # Main script execution:
 python $python_script \
