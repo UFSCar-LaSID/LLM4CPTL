@@ -1,6 +1,10 @@
 # LLM4CPTL: Large Language Models for Continuous Pedestrian Trajectory Learning
 
-1.  Install conda or miniconda;
+All scripts were originally developed and executed in a high performance computing (HPC) system named Lovelace. The system is hosted by the [Centros Nacionais de Processamento de Alto Desempenho de São Paulo (CENAPAD-SP)](https://www.cenapad.unicamp.br/), which is part of the [Sistema Nacional de Processamento de Alto Desempenho (SINAPAD)](https://www.lncc.br/sinapad/).
+
+## Setup
+
+1.  Install [Anaconda](https://www.anaconda.com/docs/getting-started/anaconda/install) or [Miniconda](https://www.anaconda.com/docs/getting-started/miniconda/install);
 
 2.  Activate conda for your bash session:
     ```
