@@ -3,12 +3,12 @@
 1.  Install conda or miniconda;
 
 2.  Activate conda for your bash session:
-    ```bash
+    ```
     source /opt/pub/spack/miniconda3/22.11.1/gcc/9.4.0/etc/profile.d/conda.sh
     ```
 
 3.  Create and configure the conda environment:
-    ```bash
+    ```
     conda create -n cptlsgr python=3.6.13 -y
     conda activate cptlsgr
     ```
@@ -28,6 +28,6 @@
         typing-extensions==3.10.0.0 urllib3==1.26.5 visdom==0.1.8.9 wcwidth==0.2.5 websocket-client==1.1.0 tensorboard==2.10.1
      ```
 4. Create a folder for logs:
-   ```
+   ```bash
    mkdir cptl_with_social_gr/logs
    ```
