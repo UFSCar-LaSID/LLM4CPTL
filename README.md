@@ -11,9 +11,6 @@
     ```bash
     conda create -n cptlsgr python=3.6.13 -y
     conda activate cptlsgr
-    
-    
-    
     ```
     3.1.  Instalation with conda:
      ```
