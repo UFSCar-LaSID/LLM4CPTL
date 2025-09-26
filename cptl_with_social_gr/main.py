@@ -617,6 +617,7 @@ def run(args, verbose=False):
                 'prediction_length': args.pred_len,
                 'batch_size': args.batch_size,
                 'replay_batch_size': args.replay_batch_size,
+                'iters': args.iters,
                 'main_predictor_model': args.main_model,
                 'average_prediction_error_ape_ade': average_ades,
                 'average_prediction_error_ape_fde': average_fdes,
