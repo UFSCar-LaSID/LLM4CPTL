@@ -114,8 +114,7 @@ def main(args):
         )
     )
     
-    metrics_filename = "{}/IL_metrics-{dataset_name_train}-{dataset_name_test}-{replay}-{iters}-{batch_size}-{replay_batch_size}-{lr}-{main_model}-{train_order}-{seed}-{val}-{val_class}.csv".format(
-        args.r_dir, dataset_name_train=args.dataset_name_train, dataset_name_test=args.dataset_name_test, replay=args.replay, iters=args.iters, batch_size=args.batch_size, replay_batch_size=args.replay_batch_size, lr=args.lr, main_model=model.name, train_order=args.dataset_order, seed=args.seed, val=args.val, val_class=args.val_class)
+    metrics_filename = "{}/IL_metrics-{dataset_name_train}-{dataset_name_test}-{aug}-{main_model}.csv".format(args.r_dir, dataset_name_train=args.dataset_name_train, dataset_name_test=args.dataset_name_test, aug=args.aug, main_model=model.name)
     metrics_data = {
         'method': 'IL',
         'train_dataset': args.dataset_name_train,
