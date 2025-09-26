@@ -18,6 +18,9 @@ python_script=$user_root_folder/LLM4CPTL/cptl_with_social_gr/main.py
 python_script_2=$user_root_folder/LLM4CPTL/cptl_with_social_gr/evaluate_batch_learning.py
 dataset_name_train=INTERACTION
 dataset_name_test=INTERACTION
+batch_size=100000
+replay_batch_size=$batch_size
+iters=400
 
 # Modules:
 module load miniconda3/22.11.1-gcc-9.4.0
@@ -39,6 +42,9 @@ python $python_script \
     --method=batch_learning \
 	--log_dir=$dataset_name_train \
     --dataset_name=$dataset_name_train \
+	--batch_size=$batch_size \
+	--replay_batch_size=$replay_batch_size \
+	--iters=$iters \
 	--time \
 	--pdf \
 	--metrics
