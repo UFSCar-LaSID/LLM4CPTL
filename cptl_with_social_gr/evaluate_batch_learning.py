@@ -1,5 +1,6 @@
 import argparse
 import os
+import pandas as pd
 
 #os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 import pickle
@@ -109,8 +110,31 @@ def main(args):
             args.dataset_name_train, args.dataset_name_test, args.pred_len, ade, fde
         )
     )
+    
+    metrics_filename = "{}/IL_metrics-{dataset_name_train}-{dataset_name_test}-{replay}-{iters}-{batch_size}-{replay_batch_size}-{lr}-{main_model}-{train_order}-{seed}-{val}-{val_class}.csv".format(
+        args.r_dir, dataset_name_train=args.dataset_name_train, dataset_name_test=args.dataset_name_test, replay=args.replay, iters=args.iters, batch_size=args.batch_size, replay_batch_size=args.replay_batch_size, lr=args.lr, main_model=model.name, train_order=args.dataset_order, seed=args.seed, val=args.val, val_class=args.val_class)
+    metrics_data = {
+        'method': 'IL',
+        'train_dataset': args.dataset_name_train,
+        'test_dataset': args.dataset_name_test,
+        'learning_method': 'batch_learning',
+        'replay_method': args.replay,
+        'training_time_in_secs': None,
+        'observation_length': args.obs_len,
+        'prediction_length': args.pred_len,
+        'batch_size': args.batch_size,
+        'replay_batch_size': args.replay_batch_size,
+        'iters': args.iters,
+        'main_predictor_model': args.main_model,
+        'average_prediction_error_ape_ade': ade,
+        'average_prediction_error_ape_fde': fde,
+        'backward_transfer_bwt_ade': 0.0,
+        'backward_transfer_bwt_fde': 0.0,
+    }
+    metrics_dataframe = pd.DataFrame(metrics_data, index=[0])
+    metrics_dataframe.to_csv(metrics_filename, index=False)
 
-
+    print("\nGenerated CSV file with metrics: {}".format(metrics_filename))
 
 if __name__ == "__main__":
     args = parser.parse_args()
