@@ -35,6 +35,8 @@ cd $user_root_folder/LLM4CPTL/cptl_with_social_gr
 python $python_script \
     --method=continual_learning \
 	--replay=exemplars \
+	--batch_size=100000 \
+	--replay_batch_size=100000 \
 	--time \
 	--pdf \
 	--metrics
