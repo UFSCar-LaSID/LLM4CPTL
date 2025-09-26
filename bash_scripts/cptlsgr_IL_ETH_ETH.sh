@@ -19,7 +19,7 @@ python_script_2=$user_root_folder/LLM4CPTL/cptl_with_social_gr/evaluate_batch_le
 dataset_name_train=ETH
 dataset_name_test=ETH
 batch_size=100000
-replay_batch_size=100000
+replay_batch_size=$batch_size
 iters=400
 
 # Modules:
