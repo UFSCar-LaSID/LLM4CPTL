@@ -59,7 +59,7 @@ parser.add_argument('--main_model', default='lstm', type=str, choices=model_choi
 
 parser.add_argument("--num_samples", default=20, type=int)
 parser.add_argument("--dset_type", default="test", type=str)
-parser.add_argument("--resume", default="model_best.pth.tar", type=str, metavar="PATH", help="path to latest checkpoint (default: none)",)
+parser.add_argument("--resume", default="model_best.pth.tar", type=str, metavar="PATH", help="path to latest checkpoint (default: none)")
 
 
 def get_generator(checkpoint):
@@ -114,7 +114,7 @@ def main(args):
         )
     )
     
-    metrics_filename = "{}/IL_metrics-{dataset_name_train}-{dataset_name_test}-{aug}-{main_model}.csv".format(args.r_dir, dataset_name_train=args.dataset_name_train, dataset_name_test=args.dataset_name_test, aug=args.aug, main_model=model.name)
+    metrics_filename = "{}/IL_metrics-{dataset_name_train}-{dataset_name_test}-{aug}-{main_model}.csv".format(args.r_dir, dataset_name_train=args.dataset_name_train, dataset_name_test=args.dataset_name_test, aug=args.aug, main_model=args.main_model)
     metrics_data = {
         'method': 'IL',
         'train_dataset': args.dataset_name_train,
