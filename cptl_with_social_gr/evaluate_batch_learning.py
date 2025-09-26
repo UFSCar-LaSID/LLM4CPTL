@@ -25,6 +25,7 @@ torch.cuda.set_device(0)
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--log_dir", default="ETH", help="Directory containing logging file")
+parser.add_argument('--results-dir', type=str, default='./results', dest='r_dir', help="default")
 parser.add_argument("--dataset_name_train", default="ETH", type=str)
 parser.add_argument("--dataset_name_test", default="ETH", type=str)
 parser.add_argument("--delim", default="\t")
