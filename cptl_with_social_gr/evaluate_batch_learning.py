@@ -104,6 +104,8 @@ def main(args):
     ade, fde = evaluate(loader, generator)
     d = {'training dataset': args.dataset_name_train, 'testing dataset': args.dataset_name_test, 'Pred len': args.pred_len,
          'ADE': ade, 'FDE': fde}
+    if not os.path.isdir(args.r_dir):
+        os.mkdir(args.r_dir)
     utils.save_dict(d, "{}/IL_batch_learning_{}_{}_{}_{}".format(args.r_dir, args.dataset_name_train, args.dataset_name_test, args.aug, args.main_model))
     utils.save_dict_txt(d, "{}/IL_batch_learning_{}_{}_{}_{}".format(args.r_dir, args.dataset_name_train, args.dataset_name_test, args.aug, args.main_model))
     print(
