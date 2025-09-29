@@ -127,7 +127,7 @@ def main(args):
         'prediction_length': args.pred_len,
         'batch_size': args.batch_size,
         'replay_batch_size': None,
-        'iters': None,
+        'iters': args.iters,
         'main_predictor_model': args.main_model,
         'average_prediction_error_ape_ade': ade,
         'average_prediction_error_ape_fde': fde,
