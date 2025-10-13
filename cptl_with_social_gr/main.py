@@ -19,6 +19,7 @@ from helper import utils
 from helper.param_values import set_default_values
 from helper.param_stamp import get_param_stamp
 from helper.continual_learner import ContinualLearner
+from codecarbon import EmissionsTracker
 
 parser = argparse.ArgumentParser('./main.py', description='Run experiment.')
 parser.add_argument('--get-stamp', action='store_true',
@@ -164,7 +165,6 @@ batch_params.add_argument("--resume", default="", type=str,
 batch_params.add_argument("--checkpoint_log", default=50,
                           type=int, help="iters after which to save checkpoint")
 
-
 def run(args, verbose=False):
 
     # Use cuda?
@@ -189,6 +189,26 @@ def run(args, verbose=False):
         + [args.graph_lstm_hidden_size]
     )
     n_heads = [int(x) for x in args.heads.strip().split(",")]
+    
+    variation_of_clsgr_executed = ""
+    if args.method == "batch_learning":
+        variation_of_clsgr_executed = "IL"
+    elif args.method == "continual_learning":
+        variation_of_clsgr_executed = "CL_"
+        if args.replay == "none":
+            variation_of_clsgr_executed += "NR"
+        elif args.replay == "exemplars":
+            variation_of_clsgr_executed += "ER"
+        elif args.replay == "generative" and args.replay_model == "condition":
+            variation_of_clsgr_executed += "CGR"
+        else:
+            variation_of_clsgr_executed += "SGR"
+    
+    tracker_carboncode = EmissionsTracker(
+        project_name=f"{variation_of_clsgr_executed}_{args.replay}_{args.obs_len}_{args.pred_len}_{args.batch_size}_{args.replay_batch_size if variation_of_clsgr_executed != 'IL' else None}_{args.iters}_{args.main_model}",
+        output_dir=args.r_dir,
+        output_file=f"{variation_of_clsgr_executed}_emissions_{args.dataset_name}_{args.iters}_{args.batch_size}.csv" if args.method == 'batch_learning' else f"{variation_of_clsgr_executed}_emissions_{args.iters}_{args.batch_size}.csv"
+    )
 
     ###############################################################################
     ##################
@@ -252,6 +272,12 @@ def run(args, verbose=False):
                 logging.info(
                     "=> no checkpoint found at '{}'".format(args.resume))
 
+        if args.time:
+            # Keep track of training-time
+            start = time.time()
+            
+        tracker_carboncode.start()
+        
         for epoch in range(args.start_epoch, args.iters + 1):
             train(args, model, train_loader, optimizer, epoch, writer)
             if epoch >= args.val_epoch:
@@ -275,6 +301,27 @@ def run(args, verbose=False):
                 )
 
         writer.close()
+        
+        _ = tracker_carboncode.stop()
+        
+        # Get total training-time in seconds, and write to file
+        if args.time:
+            param_stamp = get_param_stamp(
+                args, model.name, verbose=verbose, replay=True if (
+                    not args.replay == "none") else False,
+                replay_model_name=generator.name if (
+                    args.replay == "generative") else None,
+            )
+            
+            training_time = time.time() - start
+            time_file = open("{}/{}_time-{}.txt".format(args.r_dir,
+                             variation_of_clsgr_executed, param_stamp), 'w')
+            time_file.write('{}\n'.format(training_time))
+            time_file.close()
+        
+        if verbose and args.time:
+            print("=> Total training time = {:.1f} seconds\n".format(
+                training_time))
 
     ###############################################################################
     ######################
@@ -282,15 +329,6 @@ def run(args, verbose=False):
     ######################
 
     if args.method == "continual_learning":
-        variation_of_clsgr_executed = "CL_"
-        if args.replay == "none":
-            variation_of_clsgr_executed += "NR"
-        elif args.replay == "exemplars":
-            variation_of_clsgr_executed += "ER"
-        elif args.replay == "generative" and args.replay_model == "condition":
-            variation_of_clsgr_executed += "CGR"
-        else:
-            variation_of_clsgr_executed += "SGR"
 
         # Set default arguments & check for incompatible options
         args.lr_gen = args.lr if args.lr_gen is None else args.lr_gen
@@ -553,13 +591,19 @@ def run(args, verbose=False):
 
         if verbose:
             print("\nTraining...")
-        # Keep track of training-time
-        start = time.time()
+        
+        if args.time:
+            # Keep track of training-time
+            start = time.time()
+            
+        tracker_carboncode.start()
+        
         # Train model
-        diag_ades, diag_fdes = train_cl(args, best_ade, model, train_datasets, val_datasets, replay_model=args.replay, iters=args.iters, batch_size=args.batch_size,
+        diag_ades, diag_fdes, elpased_time_for_each_task = train_cl(args, best_ade, model, train_datasets, val_datasets, replay_model=args.replay, iters=args.iters, batch_size=args.batch_size,
                                         generator=generator, fake_generator=fake_generator, gen_iters=args.g_iters, gen_loss_cbs=generator_loss_cbs, fake_gen_loss_cbs=fake_generator_loss_cbs,
                                         sample_cbs=sample_cbs, eval_cbs=eval_cbs, loss_cbs=solver_loss_cbs, val_loss_cbs=solver_val_loss_cbs,
                                         metric_cbs=metric_cbs, test_order=test_order)
+        _ = tracker_carboncode.stop()
         # Get total training-time in seconds, and write to file
         if args.time:
             training_time = time.time() - start
@@ -567,7 +611,12 @@ def run(args, verbose=False):
                              variation_of_clsgr_executed, param_stamp), 'w')
             time_file.write('{}\n'.format(training_time))
             time_file.close()
-
+        
+        # Save trained model to a file for future load and inference:
+        model_checkpoint_filename = f"{args.r_dir}/{variation_of_clsgr_executed}_model_{model.name}_{args.iters}_{args.batch_size}_{args.replay_batch_size}.pth"
+        utils.save_checkpoint(args=args, state=model.state_dict(), is_best=False, filename=model_checkpoint_filename)
+        print(f"Trained model saved to {model_checkpoint_filename}")
+        
         # ------------------------------------------------------------------------------------------------------------------#
         # ------------------#
         # ----EVALUATION----#
@@ -598,11 +647,13 @@ def run(args, verbose=False):
             print("=> Total training time = {:.1f} seconds\n".format(
                 training_time))
 
-        if args.metrics and diag_ades is not None and diag_fdes is not None:
-            backward_transfer_bwt_ade = (
-                sum(ades) - sum(diag_ades)) / (tasks - 1)
-            backward_transfer_bwt_fde = (
-                sum(fdes) - sum(diag_fdes)) / (tasks - 1)
+        if args.metrics:
+            backward_transfer_bwt_ade = backward_transfer_bwt_ade = 0
+            if diag_ades is not None and diag_fdes is not None:
+                backward_transfer_bwt_ade = (
+                    sum(ades) - sum(diag_ades)) / (tasks - 1)
+                backward_transfer_bwt_fde = (
+                    sum(fdes) - sum(diag_fdes)) / (tasks - 1)
 
             metrics_filename = "{}/{}_metrics-{replay}-{iters}-{batch_size}-{replay_batch_size}-{lr}-{main_model}-{train_order}-{seed}-{val}-{val_class}.csv".format(
                 args.r_dir, variation_of_clsgr_executed, replay=args.replay, iters=args.iters, batch_size=args.batch_size, replay_batch_size=args.replay_batch_size, lr=args.lr, main_model=model.name, train_order=args.dataset_order, seed=args.seed, val=args.val, val_class=args.val_class)
@@ -630,6 +681,8 @@ def run(args, verbose=False):
                     {'ade_task{}_after_training_in_all_tasks'.format(i+1): ades[i]})
                 metrics_data.update(
                     {'fde_task{}_after_training_in_all_tasks'.format(i+1): fdes[i]})
+                metrics_data.update(
+                    {'elapsed_time_task_{}'.format(i+1): elpased_time_for_each_task[i]})
 
             metrics_dataframe = pd.DataFrame(metrics_data, index=[0])
             metrics_dataframe.to_csv(metrics_filename, index=False)
