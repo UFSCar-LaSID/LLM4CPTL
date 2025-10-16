@@ -7,6 +7,7 @@ import numpy as np
 
 import matplotlib.pyplot as plt
 import matplotlib.ticker as plticker
+plt.rcParams['axes.axisbelow'] = True
 
 parser = argparse.ArgumentParser('./merge_results_metrics.py', description='Merge metrics for all excecuted experiments.')
 parser.add_argument('--results_dir', type=str, default='./results', dest='r_dir', help="default")
@@ -191,56 +192,66 @@ def run(args):
     loc = plticker.MultipleLocator(base=0.1)
     
     ### PLOT 1 ###############################
-    DF_ALL_CL_AND_ILMEAN.plot(
+    ax = DF_ALL_CL_AND_ILMEAN.plot(
         x="method",
         y=["average_prediction_error_ape_ade", "average_prediction_error_ape_fde"],
         kind="bar",
-        grid=True,
         legend=True,
         xlabel="Methods",
         ylabel="Average prediction error (APE) in meters"
     )
     plt.xticks(rotation=45, ha='right')
     plt.legend(title="Metrics", labels=["APE: ADE", "APE: FDE"], bbox_to_anchor=(1.05, 1), loc='upper left')
+    
+    ax.grid(True, which='both', axis='both', linestyle="--", alpha=0.5)
+    
+    ax.yaxis.set_major_locator(loc)
+    
     plt.tight_layout()
     plt.savefig(os.path.join(plots_dir, "metrics_ape.png"), dpi=300)
     plt.close()
     print("Saved plot 1: APE per method")
 
     ### PLOT 2 ###############################
-    DF_ALL_CL.plot(
+    ax = DF_ALL_CL.plot(
         x="method",
         y=["backward_transfer_bwt_ade", "backward_transfer_bwt_fde"],
         kind="bar",
-        grid=True,
         legend=True,
         xlabel="Methods",
         ylabel="Backward transfer (BWT)"
     )
     plt.xticks(rotation=45, ha='right')
     plt.legend(title="Metrics", labels=["BWT: ADE", "BWT: FDE"], bbox_to_anchor=(1.05, 1), loc='upper left')
+    
+    ax.grid(True, which='both', axis='both', linestyle="--", alpha=0.5)
+    
     plt.tight_layout()
     plt.savefig(os.path.join(plots_dir, "metrics_bwt.png"), dpi=300)
     plt.close()
     print("Saved plot 2: BWT per method")
 
     ### PLOT 3 ###############################
-    DF_ALL_CL.plot(
+    ax = DF_ALL_CL.plot(
         x="method",
         y="duration",
         kind="bar",
-        grid=True,
         legend=False,
         xlabel="Methods",
         ylabel="Total training duration (seconds)",
     )
     plt.xticks(rotation=45, ha='right')
+    
+    ax.grid(True, which='both', axis='both', linestyle="--", alpha=0.5)
+    
+    ax.yaxis.set_major_locator(plticker.MultipleLocator(base=1000))
+    
     plt.tight_layout()
     plt.savefig(os.path.join(plots_dir, "metrics_totalTrainingDuration.png"), dpi=300)
     plt.close()
     print("Saved plot 3: Total training duration (seconds) per method")    
     
-    ### PLOT 4 ###############################
+    ### PLOT 4 ###############################    
     task_cols = [c for c in DF_ALL_CL.columns if re.search(r"task\d+", c)]
     tasks = [re.search(r"task\d+", c).group() for c in task_cols]
     unique_tasks = sorted(set(tasks), key=lambda x: int(re.search(r"\d+", x).group()))
@@ -267,7 +278,7 @@ def run(args):
     ax.set_xticks(x_values)
     ax.set_xlabel("Tasks")
     ax.set_ylabel("Elapsed time (seconds)")
-    ax.grid(True)
+    ax.grid(True, linestyle="--", alpha=0.5)
     ax.set_yscale('log')
     ax.legend(title="Methods", bbox_to_anchor=(1.05, 1), loc='upper left')
 
@@ -319,7 +330,7 @@ def run(args):
     ax.set_xticks(x_values)
     ax.set_xlabel("Tasks")
     ax.set_ylim(max(ymin, 0.00), ymax) 
-    ax.set_ylabel("Average displacement error (ADE) in meters")
+    ax.set_ylabel("Average displacement eror (ADE) in meters")
     ax.grid(True, linestyle="--", alpha=0.5)
     ax.legend(title="Methods")
     
