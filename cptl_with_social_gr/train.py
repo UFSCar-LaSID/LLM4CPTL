@@ -1,3 +1,9 @@
+#!/usr/bin/env python3
+
+###################################
+## Imports and packages
+###################################
+
 import tqdm
 import copy
 import torch
@@ -9,7 +15,9 @@ from data.loader import data_loader, data_dset
 from torch.autograd import Variable
 import shutil
 
-
+###################################
+## Functions
+###################################
 def train(args, model, train_loader, optimizer, epoch, writer):
     losses = utils.AverageMeter("Loss", ":.6f")
     progress = utils.ProgressMeter(
