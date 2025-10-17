@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-# Ya Wu 2022-08-03
+
+###################################
+## Imports and packages
+###################################
 import argparse
 import os
 import numpy as np
@@ -21,152 +24,129 @@ from helper.param_stamp import get_param_stamp
 from helper.continual_learner import ContinualLearner
 from codecarbon import EmissionsTracker
 
+###################################
+## Experiments arguments
+###################################
 parser = argparse.ArgumentParser('./main.py', description='Run experiment.')
-parser.add_argument('--get-stamp', action='store_true',
-                    help="print param-stamp & exit")
-parser.add_argument('--seed', type=int, default=72,
-                    help="random seed (for each random-module used)")
-parser.add_argument('--no-gups', action='store_false',
-                    dest='cuda', help="do not use GPUs")
-parser.add_argument('--data-dir', type=str,
-                    default='./datasets', dest='d_dir', help="default")
-parser.add_argument('--plot-dir', type=str,
-                    default='./plots', dest='p_dir', help="default")
-parser.add_argument('--results-dir', type=str,
-                    default='./results', dest='r_dir', help="default")
-dataset_choices = ['pedestrian', 'vehicle', 'interaction']
-parser.add_argument('--dataset_order', type=str,
-                    default='pedestrian', choices=dataset_choices)
-method_choices = ['batch_learning', 'continual_learning']
-parser.add_argument('--method', type=str,
-                    default='batch_learning', choices=method_choices)
+parser.add_argument('--get-stamp', action='store_true', help="print param-stamp & exit")
+parser.add_argument('--seed', type=int, default=72, help="random seed (for each random-module used)")
+parser.add_argument('--no-gups', action='store_false', dest='cuda', help="do not use GPUs")
+parser.add_argument('--data-dir', type=str, default='./datasets', dest='d_dir', help="default")
+parser.add_argument('--plot-dir', type=str, default='./plots', dest='p_dir', help="default")
+parser.add_argument('--results-dir', type=str, default='./results', dest='r_dir', help="default")
 
-# training hyperparameters / initialization
+dataset_choices = ['pedestrian', 'vehicle', 'interaction']
+parser.add_argument('--dataset_order', type=str, default='pedestrian', choices=dataset_choices)
+
+method_choices = ['batch_learning', 'continual_learning']
+parser.add_argument('--method', type=str, default='batch_learning', choices=method_choices)
+
+###################################
+## Training arguments
+###################################
 train_params = parser.add_argument_group('Training Parameters')
-train_params.add_argument('--iters', type=int, default=400,
-                          help="batches to optimize solver")
-train_params.add_argument(
-    '--lr', type=float, default=0.001, help="learning rate")
-train_params.add_argument('--batch_size', type=int,
-                          default=64, help="batch-size")
-train_params.add_argument('--optimizer', type=str,
-                          choices=['adam', 'adam_reset', 'sgd'], default='adam')
-train_params.add_argument('--obs_len', default=8,
-                          type=int, help="the observed frame of trajectory")
-train_params.add_argument('--pred_len', default=12,
-                          type=int, help="the predicted frame of trajectory")
+train_params.add_argument('--iters', type=int, default=400, help="batches to optimize solver")
+train_params.add_argument('--lr', type=float, default=0.001, help="learning rate")
+train_params.add_argument('--batch_size', type=int, default=64, help="batch-size")
+train_params.add_argument('--optimizer', type=str, choices=['adam', 'adam_reset', 'sgd'], default='adam')
+train_params.add_argument('--obs_len', default=8, type=int, help="the observed frame of trajectory")
+train_params.add_argument('--pred_len', default=12, type=int, help="the predicted frame of trajectory")
 train_params.add_argument('--skip', default=1, type=int)
 train_params.add_argument('--delim', default='\t')
 train_params.add_argument('--loader_num_workers', default=8, type=int)
 train_params.add_argument("--gpu_index", default=0, type=int)
-augmentation_choices = ["none", "rotation"]
-train_params.add_argument("--aug", type=str, default='none',
-                          choices=augmentation_choices, help="whether to rotation the data")
-train_params.add_argument('--val_epoch', default=150,
-                          type=int, help="epoch start to validation")
 
-#########################################################################################################################
-# main model architecture parameters #
-# lstm
+augmentation_choices = ["none", "rotation"]
+train_params.add_argument("--aug", type=str, default='none', choices=augmentation_choices, help="whether to rotation the data")
+
+train_params.add_argument('--val_epoch', default=150, type=int, help="epoch start to validation")
+
+###################################
+## Main model arguments
+###################################
+# LSTM
 model_params = parser.add_argument_group('Main Model Parameters')
 model_params.add_argument('--traj_lstm_input_size', default=2, type=int)
 model_params.add_argument('--traj_lstm_hidden_size', default=32, type=int)
 model_params.add_argument('--traj_lstm_output_size', default=32, type=int)
-# gat
-model_params.add_argument("--heads", type=str, default="4,1",
-                          help="Heads in each layer, splitted with comma")
-model_params.add_argument("--hidden-units", type=str, default="16",
-                          help="Hidden units in each hidden layer, splitted with comma")
-model_params.add_argument("--graph_network_out_dims", type=int,
-                          default=32, help="dims of every node after through GAT module")
+# GAT
+model_params.add_argument("--heads", type=str, default="4,1", help="Heads in each layer, splitted with comma")
+model_params.add_argument("--hidden-units", type=str, default="16", help="Hidden units in each hidden layer, splitted with comma")
+model_params.add_argument("--graph_network_out_dims", type=int, default=32, help="dims of every node after through GAT module")
 model_params.add_argument("--graph_lstm_hidden_size", default=32, type=int)
-model_params.add_argument("--dropout", type=float,
-                          default=0, help="Dropout rate (1 - keep probability)")
-model_params.add_argument("--alpha", type=float,
-                          default=0.2, help="Alpha for the leaky_relu.")
+model_params.add_argument("--dropout", type=float, default=0, help="Dropout rate (1 - keep probability)")
+model_params.add_argument("--alpha", type=float, default=0.2, help="Alpha for the leaky_relu.")
+
 model_choices = ["lstm", "gat"]
-model_params.add_argument('--main_model', default='lstm', type=str,
-                          choices=model_choices, help="the main model of CL and BL")
+model_params.add_argument('--main_model', default='lstm', type=str,  choices=model_choices, help="the main model of CL and BL")
 
-# train-parameters for generative model (if separate model)
+###################################
+## Generative model arguments
+###################################
 gen_params = parser.add_argument_group('Generator Hyper Parameters')
-gen_params.add_argument('--g-iters', type=int,
-                        help="batches to train generator (default: same as lstm)")
-gen_params.add_argument('--lr_gen', type=float, default=0.001,
-                        help="learning rate generator (default: same as lr)")
-gen_params.add_argument('--replay_batch_size', type=int, default=64,
-                        help="replay batch size, it is same with batch size")
+gen_params.add_argument('--g-iters', type=int, help="batches to train generator (default: same as lstm)")
+gen_params.add_argument('--lr_gen', type=float, default=0.001, help="learning rate generator (default: same as lr)")
+gen_params.add_argument('--replay_batch_size', type=int, default=64, help="replay batch size, it is same with batch size")
 
-# "memory replay" parameters
+###################################
+## Memory replay arguments
+###################################
 replay_params = parser.add_argument_group('Generative Replay Parameters')
-replay_params.add_argument(
-    '--z_dim', type=int, default=200, help="size of latent representation")
-replay_choices = ['offline', 'exact',
-                  'generative', 'none', 'current', 'exemplars']
-replay_params.add_argument(
-    '--replay', type=str, default='none', choices=replay_choices)
+replay_params.add_argument('--z_dim', type=int, default=200, help="size of latent representation")
+
+replay_choices = ['offline', 'exact', 'generative', 'none', 'current', 'exemplars']
+replay_params.add_argument('--replay', type=str, default='none', choices=replay_choices)
+
 replay_params.add_argument('--x_dim', default=2, type=int)
 replay_params.add_argument('--h_dim', default=64, type=int)
 replay_params.add_argument('--n_layers', default=1, type=int)
 
 replay_model_choices = ['lstm', 'vrnn', 'condition']
-replay_params.add_argument('--replay_model', default='lstm', type=str,
-                           choices=replay_model_choices, help="the generative replay model of CL")
+replay_params.add_argument('--replay_model', default='lstm', type=str, choices=replay_model_choices, help="the generative replay model of CL")
 
-# "memory allocation" parameters
+###################################
+## Memory allocation arguments
+###################################
 cl_params = parser.add_argument_group('Memory Allocation Parameters')
-cl_params.add_argument('--si', action='store_true',
-                       help="use 'Synaptic Intelligence' (Zenke, Poole et al, 2017)")
-cl_params.add_argument('--c', type=float, dest="si_c",
-                       help="--> SI: regularisation strength")
-cl_params.add_argument('--epsilon', type=float, default=0.1,
-                       dest="epsilon", help="--> SI: dampening parameter")
+cl_params.add_argument('--si', action='store_true', help="use 'Synaptic Intelligence' (Zenke, Poole et al, 2017)")
+cl_params.add_argument('--c', type=float, dest="si_c", help="--> SI: regularisation strength")
+cl_params.add_argument('--epsilon', type=float, default=0.1, dest="epsilon", help="--> SI: dampening parameter")
 
-
-# evaluation parameters
+###################################
+## Evolution arguments
+###################################
 eval_params = parser.add_argument_group('Evaluation Parameters')
-eval_params.add_argument('--time', action='store_true',
-                         help="keep track of total training time")
-eval_params.add_argument('--metrics', action='store_true',
-                         help="calculate additional metrics (e.g., BWT, forgetting)")
-eval_params.add_argument('--pdf', action='store_true',
-                         help="generator pdf with results")
-eval_params.add_argument('--visdom', action='store_true',
-                         help="use visdom for on-the-fly plots")
-eval_params.add_argument('--val', action='store_true',
-                         help="use validation data")
+eval_params.add_argument('--time', action='store_true', help="keep track of total training time")
+eval_params.add_argument('--metrics', action='store_true', help="calculate additional metrics (e.g., BWT, forgetting)")
+eval_params.add_argument('--pdf', action='store_true', help="generator pdf with results")
+eval_params.add_argument('--visdom', action='store_true', help="use visdom for on-the-fly plots")
+eval_params.add_argument('--val', action='store_true', help="use validation data")
+
 class_choices = ['current', 'all', 'replay']
-eval_params.add_argument('--val_class', default='current', type=str, choices=class_choices,
-                         help='whether use current or previous task validation data')
-eval_params.add_argument(
-    '--log-per-task', action='store_true', help="set all visdom-logs to [iters]")
-eval_params.add_argument('--loss-log', type=int, default=20,
-                         metavar="N", help="iters after which to plot loss")
-eval_params.add_argument('--prec-log', type=int, default=20,
-                         metavar="N", help="iters after which to plot precision")
-eval_params.add_argument('--prec-n', type=int, default=1024,
-                         help="samples for evaluating solver's precision")
-eval_params.add_argument('--sample-log', type=int, default=500,
-                         metavar="N", help="iters after which to plot samples")
-eval_params.add_argument('--num_samples', type=int, default=20,
-                         help="sample trajectories when evaluation model")
+eval_params.add_argument('--val_class', default='current', type=str, choices=class_choices, help='whether use current or previous task validation data')
 
-##########################################################################################################################
-# batch learning
+eval_params.add_argument('--log-per-task', action='store_true', help="set all visdom-logs to [iters]")
+eval_params.add_argument('--loss-log', type=int, default=20, metavar="N", help="iters after which to plot loss")
+eval_params.add_argument('--prec-log', type=int, default=20, metavar="N", help="iters after which to plot precision")
+eval_params.add_argument('--prec-n', type=int, default=1024, help="samples for evaluating solver's precision")
+eval_params.add_argument('--sample-log', type=int, default=500, metavar="N", help="iters after which to plot samples")
+eval_params.add_argument('--num_samples', type=int, default=20, help="sample trajectories when evaluation model")
+
+###################################
+## Batch learning arguments
+###################################
 batch_params = parser.add_argument_group('Batch learning Parameters')
-batch_params.add_argument("--log_dir", default="ETH",
-                          help="Directory containing logging file")
+batch_params.add_argument("--log_dir", default="ETH", help="Directory containing logging file")
 batch_params.add_argument("--dataset_name", default="ETH", type=str)
-batch_params.add_argument("--start_epoch", default=1, type=int,
-                          metavar="N", help="manual epoch number (useful on restarts)")
+batch_params.add_argument("--start_epoch", default=1, type=int, metavar="N", help="manual epoch number (useful on restarts)")
 batch_params.add_argument("--print_every", default=10, type=int)
-batch_params.add_argument("--resume", default="", type=str,
-                          metavar="PATH", help="path to latest checkpoint (default: none)")
-batch_params.add_argument("--checkpoint_log", default=50,
-                          type=int, help="iters after which to save checkpoint")
+batch_params.add_argument("--resume", default="", type=str, metavar="PATH", help="path to latest checkpoint (default: none)")
+batch_params.add_argument("--checkpoint_log", default=50, type=int, help="iters after which to save checkpoint")
 
+###################################
+## Functions
+###################################
 def run(args, verbose=False):
-
     # Use cuda?
     cuda = torch.cuda.is_available() and args.cuda
     device = torch.device('cuda', index=args.gpu_index) if torch.cuda.is_available(
@@ -211,17 +191,18 @@ def run(args, verbose=False):
     )
 
     ###############################################################################
-    ##################
-    ## Batch learning##
-    ##################
+    ## Batch learning
+    ###############################################################################
     if args.method == "batch_learning":
         if not os.path.exists(args.log_dir):
             os.makedirs(args.log_dir)
-        utils.set_logger(os.path.join(
-            os.path.abspath(args.log_dir), "IL_train.log"))
+            
+        utils.set_logger(os.path.join(os.path.abspath(args.log_dir), "IL_train.log"))
+        
         checkpoint_dir = args.log_dir + "/checkpoint"
         if os.path.exists(checkpoint_dir) is False:
             os.mkdir(checkpoint_dir)
+            
         train_path = utils.get_dset_path(args.dataset_name, "train")
         val_path = utils.get_dset_path(args.dataset_name, "val")
 
@@ -236,6 +217,7 @@ def run(args, verbose=False):
         val_dset = data_dset(args, val_path)
         val_loader = data_loader(args, val_dset, args.batch_size)
         writer = SummaryWriter()
+        
         if args.main_model == "lstm":
             from main_model.encoder import Predictor
             model = Predictor(
@@ -273,7 +255,6 @@ def run(args, verbose=False):
                     "=> no checkpoint found at '{}'".format(args.resume))
 
         if args.time:
-            # Keep track of training-time
             start = time.time()
             
         tracker_carboncode.start()
@@ -324,10 +305,8 @@ def run(args, verbose=False):
                 training_time))
 
     ###############################################################################
-    ######################
-    ## Continual learning##
-    ######################
-
+    ## Continual learning
+    ###############################################################################
     if args.method == "continual_learning":
 
         # Set default arguments & check for incompatible options
@@ -809,7 +788,9 @@ def run(args, verbose=False):
             if verbose:
                 print("\nGenerated plot: {}\n".format(plot_name))
 
-
+###################################
+## Main program
+###################################
 if __name__ == '__main__':
     # -load input-arguments
     args = parser.parse_args()
