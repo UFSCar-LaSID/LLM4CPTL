@@ -198,7 +198,8 @@ def run(args):
         kind="bar",
         legend=True,
         xlabel="Methods",
-        ylabel="Average prediction error (APE) in meters"
+        ylabel="APE in meters",
+        title="Average prediction error (APE) of final models on full test set"
     )
     plt.xticks(rotation=45, ha='right')
     plt.legend(title="Metrics", labels=["APE: ADE", "APE: FDE"], bbox_to_anchor=(1.05, 1), loc='upper left')
@@ -219,7 +220,8 @@ def run(args):
         kind="bar",
         legend=True,
         xlabel="Methods",
-        ylabel="Backward transfer (BWT)"
+        ylabel="BWT",
+        title="Backward transfer (BWT) on sequential task-specific test sets"
     )
     plt.xticks(rotation=45, ha='right')
     plt.legend(title="Metrics", labels=["BWT: ADE", "BWT: FDE"], bbox_to_anchor=(1.05, 1), loc='upper left')
@@ -238,7 +240,8 @@ def run(args):
         kind="bar",
         legend=False,
         xlabel="Methods",
-        ylabel="Total training duration (seconds)",
+        ylabel="Total training duration in seconds",
+        title="Total training duration of final models"
     )
     plt.xticks(rotation=45, ha='right')
     
@@ -249,7 +252,7 @@ def run(args):
     plt.tight_layout()
     plt.savefig(os.path.join(plots_dir, "metrics_totalTrainingDuration.png"), dpi=300)
     plt.close()
-    print("Saved plot 3: Total training duration (seconds) per method")    
+    print("Saved plot 3: Total training duration in seconds per method")    
     
     ### PLOT 4 ###############################    
     task_cols = [c for c in DF_ALL_CL.columns if re.search(r"task\d+", c)]
@@ -277,10 +280,11 @@ def run(args):
 
     ax.set_xticks(x_values)
     ax.set_xlabel("Tasks")
-    ax.set_ylabel("Elapsed time (seconds)")
+    ax.set_ylabel("Elapsed time in seconds")
     ax.grid(True, linestyle="--", alpha=0.5)
     ax.set_yscale('log')
     ax.legend(title="Methods", bbox_to_anchor=(1.05, 1), loc='upper left')
+    ax.set_title("Training duration of models on each task")
 
     datasets = DF_ALL_CL["train_dataset"].tolist()[0]
     dataset_order_text = "Tasks order: " + ", ".join(map(str, datasets))
@@ -315,7 +319,7 @@ def run(args):
     for method in methods:
         row = DF_ALL_CL[DF_ALL_CL["method"] == method].iloc[0] 
         y_values = [row[col] for col in ade_cols]
-        ax.plot(x_values, y_values, marker='o', label=method)
+        ax.plot(x_values, y_values, marker='o', label=method.replace("_", "-"))
     
     datasets = DF_ALL_CL["train_dataset"].tolist()[0]
     dataset_order_text = "Tasks order: " + ", ".join(map(str, datasets))
@@ -330,9 +334,10 @@ def run(args):
     ax.set_xticks(x_values)
     ax.set_xlabel("Tasks")
     ax.set_ylim(max(ymin, 0.00), ymax) 
-    ax.set_ylabel("Average displacement eror (ADE) in meters")
+    ax.set_ylabel("ADE in meters")
     ax.grid(True, linestyle="--", alpha=0.5)
     ax.legend(title="Methods")
+    ax.set_title("Average displacement error (ADE) of final models on each task-specific test set")
     
     ax.yaxis.set_major_locator(loc)
     
@@ -346,7 +351,7 @@ def run(args):
     for method in methods:
         row = DF_ALL_CL[DF_ALL_CL["method"] == method].iloc[0]
         y_values = [row[col] for col in fde_cols]
-        ax.plot(x_values, y_values, marker='o', label=method)
+        ax.plot(x_values, y_values, marker='o', label=method.replace("_", "-"))
     
     datasets = DF_ALL_CL["train_dataset"].tolist()[0]
     dataset_order_text = "Tasks order: " + ", ".join(map(str, datasets))
@@ -360,10 +365,11 @@ def run(args):
 
     ax.set_xticks(x_values)
     ax.set_xlabel("Tasks")
-    ax.set_ylabel("Final displacement error (FDE) in meters")
+    ax.set_ylabel("FDE in meters")
     ax.set_ylim(max(ymin, 0.00), ymax) 
     ax.grid(True, linestyle="--", alpha=0.5)
     ax.legend(title="Methods")
+    ax.set_title("Final displacement error (FDE) of final models on each task-specific test set")
     
     ax.yaxis.set_major_locator(loc)
     
