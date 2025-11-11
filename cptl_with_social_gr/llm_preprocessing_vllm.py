@@ -500,19 +500,19 @@ def main(args: argparse.Namespace):
                 torch.cuda.empty_cache()
 
     # --- 6. Save all LLM text outputs ---
-    print(f"\nSalvando todas as descricoes textuais (M) em {M_text_save_path}...")
+    print(f"\nSaving textual motion cues (M) in {M_text_save_path}...")
     try:
         with open(M_text_save_path, 'w') as f:
             json.dump(all_results, f, indent=2)
-        print("Descricoes de texto salvas com sucesso.")
+        print("Textual motion cues successfully saved.")
     except Exception as e:
-        print(f"Erro ao salvar as descricoes em texto: {e}")
+        print(f"Error: {e}")
 
     # --- 7. Train Gaussian Mixture Model (GMM) ---
     print("\n--- STAGE 2: Training GMM for 'Zc' ---")
     
     if not all_future_trajs_processed_for_gmm:
-        print("Erro: Nenhuma trajetoria futura foi coletada. Pulando GMM.")
+        print("Error: There are no future trajectories, GMM will not be trained.")
         return
 
     gmm_train_data = np.stack(all_future_trajs_processed_for_gmm)
