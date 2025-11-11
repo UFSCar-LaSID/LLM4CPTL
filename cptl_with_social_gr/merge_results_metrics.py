@@ -201,7 +201,10 @@ def run(args):
         ylabel="APE in meters",
         title="Average prediction error (APE) of final models on full test set"
     )
-    plt.xticks(rotation=45, ha='right')
+    
+    new_x_labels = [label.get_text().replace("_", "-") if "CL" in label.get_text() else "IL (avg)" for label in ax.get_xticklabels()]
+    ax.set_xticklabels(new_x_labels, rotation=45, ha='right')
+    #plt.xticks(rotation=45, ha='right')
     plt.legend(title="Metrics", labels=["APE: ADE", "APE: FDE"], bbox_to_anchor=(1.05, 1), loc='upper left')
     
     ax.grid(True, which='both', axis='both', linestyle="--", alpha=0.5)
@@ -223,7 +226,9 @@ def run(args):
         ylabel="BWT",
         title="Backward transfer (BWT) on sequential task-specific test sets"
     )
-    plt.xticks(rotation=45, ha='right')
+    
+    new_x_labels = [label.get_text().replace("_", "-") if "CL" in label.get_text() else "IL (avg)" for label in ax.get_xticklabels()]
+    ax.set_xticklabels(new_x_labels, rotation=45, ha='right')
     plt.legend(title="Metrics", labels=["BWT: ADE", "BWT: FDE"], bbox_to_anchor=(1.05, 1), loc='upper left')
     
     ax.grid(True, which='both', axis='both', linestyle="--", alpha=0.5)
@@ -243,7 +248,9 @@ def run(args):
         ylabel="Total training duration in seconds",
         title="Total training duration of final models"
     )
-    plt.xticks(rotation=45, ha='right')
+    
+    new_x_labels = [label.get_text().replace("_", "-") if "CL" in label.get_text() else "IL (avg)" for label in ax.get_xticklabels()]
+    ax.set_xticklabels(new_x_labels, rotation=45, ha='right')
     
     ax.grid(True, which='both', axis='both', linestyle="--", alpha=0.5)
     
@@ -283,7 +290,11 @@ def run(args):
     ax.set_ylabel("Elapsed time in seconds")
     ax.grid(True, linestyle="--", alpha=0.5)
     ax.set_yscale('log')
-    ax.legend(title="Methods", bbox_to_anchor=(1.05, 1), loc='upper left')
+    
+    handles, labels = ax.get_legend_handles_labels()
+    new_labels = [label.replace("_", "-") for label in labels]
+    ax.legend(handles, new_labels, title="Methods", bbox_to_anchor=(1.05, 1), loc='upper left')
+    
     ax.set_title("Training duration of models on each task")
 
     datasets = DF_ALL_CL["train_dataset"].tolist()[0]
