@@ -104,9 +104,6 @@ def memory_buff(args, batch_eth):
         pin_memory=True
     )
 
-
-
-
     # index = random.sample(range(0, seq_start_end.size(0)), 64)
     # index.sort()
     # out = []
