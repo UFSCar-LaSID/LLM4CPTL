@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 ###################################
-## Imports and packages
+# Imports and packages
 ###################################
 
 import tqdm
@@ -16,8 +16,10 @@ from torch.autograd import Variable
 import shutil
 
 ###################################
-## Functions
+# Functions
 ###################################
+
+
 def train(args, model, train_loader, optimizer, epoch, writer):
     losses = utils.AverageMeter("Loss", ":.6f")
     progress = utils.ProgressMeter(
@@ -94,7 +96,7 @@ def train_cl(args, best_ade, model, train_datasets, val_datasets, replay_model="
     diag_ades = [0.0] * num_tasks
     diag_fdes = [0.0] * num_tasks
     ###########################################################
-    
+
     elpased_time_for_each_task = []
 
     # Use cuda?
@@ -175,6 +177,8 @@ def train_cl(args, best_ade, model, train_datasets, val_datasets, replay_model="
                     non_linear_ped,
                     loss_mask,
                     seq_start_end,
+                    global_indices,
+                    t_embeddings
                 ) = batch
 
                 # -------------Collect data----------------#
@@ -632,7 +636,7 @@ def train_cl(args, best_ade, model, train_datasets, val_datasets, replay_model="
 
         elapsed_time_for_this_task = progress.format_dict['elapsed']
         elpased_time_for_each_task.append(elapsed_time_for_this_task)
-        
+
         # Close progress-bar(s)
         progress.close()
         if generator is not None:
@@ -678,3 +682,5 @@ def train_cl(args, best_ade, model, train_datasets, val_datasets, replay_model="
             return diag_ades, diag_fdes, None
     elif args.time:
         return None, None, elpased_time_for_each_task
+    else:
+        return None, None, None
