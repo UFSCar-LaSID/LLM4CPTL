@@ -1,7 +1,7 @@
 from helper.replayer import Replayer
 import torch
 import torch.nn as nn
-from generative_model.linear_nets import fc_layer,fc_layer_split
+from generative_model.linear_nets import fc_layer, fc_layer_split
 
 from helper.utils import relative_to_abs
 
@@ -20,8 +20,10 @@ def make_mlp(dim_list, activation='relu', batch_norm=True, dropout=0):
             layers.append(nn.Dropout(p=dropout))
     return nn.Sequential(*layers)
 
+
 class PoolHiddenNet(nn.Module):
     '''Pooling module as proposed in social-gan'''
+
     def __init__(
             self, embedding_dim=64, h_dim=64, mlp_dim=1024, bottleneck_dim=1024,
             activation='relu', batch_norm=True, dropout=0.0
@@ -81,7 +83,8 @@ class PoolHiddenNet(nn.Module):
                 curr_end_pos_2 = self.repeat(curr_end_pos, num_ped)
                 curr_rel_pos = curr_end_pos_1 - curr_end_pos_2
                 curr_rel_embedding = self.spatial_embedding(curr_rel_pos)
-                mlp_h_input = torch.cat([curr_rel_embedding, curr_hidden_1], dim=1)
+                mlp_h_input = torch.cat(
+                    [curr_rel_embedding, curr_hidden_1], dim=1)
                 curr_pool_h = self.mlp_pre_pool(mlp_h_input)
                 curr_pool_h = curr_pool_h.view(num_ped, num_ped, -1).max(1)[0]
             else:
@@ -108,7 +111,10 @@ class AutoEncoder(Replayer):
             mlp_dim=256,
             bottleneck_dim=32,
             activation='relu',
-            batch_norm=True
+            batch_norm=True,
+            adapt_architecture_to_include_llm_motion_cues=False,
+            adapt_architecture_to_include_positional_encoding=False,
+            positional_encoding_dim=32
     ):
         # Set configurations
         super().__init__()
@@ -119,43 +125,47 @@ class AutoEncoder(Replayer):
         self.traj_lstm_hidden_size = traj_lstm_hidden_size
         self.traj_lstm_output_size = traj_lstm_output_size
         self.z_dim = z_dim
+        self.adapt_architecture_to_include_llm_motion_cues = adapt_architecture_to_include_llm_motion_cues,
+        self.adapt_architecture_to_include_positional_encoding = adapt_architecture_to_include_positional_encoding
+        self.positional_encoding_dim = positional_encoding_dim
 
         # Weights of different components of the loss function
         self.lamda_rcl = 1.
         self.lamda_vl = 1.
         self.lamda_pl = 0.
 
-        self.average = "average" # --> makes that [reconL] and [variatL] are both divided by number of iput-pixels
+        # --> makes that [reconL] and [variatL] are both divided by number of iput-pixels
+        self.average = "average"
 
         # pooling configurations
         self.embedding_dim = embedding_dim
         self.mlp_dim = mlp_dim
         self.bottleneck_dim = bottleneck_dim
 
+        ### ---------SPECIFY MODEL--------###
 
-
-        ###---------SPECIFY MODEL--------###
-
-        ##>---Encoder (=q[z|x])---<##
+        ## >---Encoder (=q[z|x])---<##
         # -flatten traj to 2D-tensor
 
         # -hidden state
-        self.traj_lstm_model_encoder = nn.LSTMCell(traj_lstm_input_size, traj_lstm_hidden_size)
+        self.traj_lstm_model_encoder = nn.LSTMCell(
+            traj_lstm_input_size, traj_lstm_hidden_size)
         # self.traj_lstm_model_encoder2= nn.LSTMCell(traj_lstm_input_size, traj_lstm_hidden_size)
-        self.fcE = fc_layer(traj_lstm_hidden_size + bottleneck_dim, 128, batch_norm=None)
+        self.fcE = fc_layer(traj_lstm_hidden_size +
+                            bottleneck_dim, 128, batch_norm=None)
 
         # -to z
         self.toZ = fc_layer_split(128, z_dim, nl_mean='none', nl_logvar='none')
 
-
-        ##>---Decoder (=p[x|z])---<##
+        ## >---Decoder (=p[x|z])---<##
         # -from z
         self.fromZ = fc_layer(z_dim, 128, batch_norm=None)
         # -fully connected hidden layers
         self.fcD = fc_layer(128, traj_lstm_hidden_size, batch_norm=None)
 
         # -hidden state
-        self.pred_lstm_model = nn.LSTMCell(traj_lstm_input_size, traj_lstm_output_size)
+        self.pred_lstm_model = nn.LSTMCell(
+            traj_lstm_input_size, traj_lstm_output_size)
         # -to traj
         self.pred_hidden2pos = nn.Linear(self.traj_lstm_output_size, 2)
 
@@ -170,15 +180,14 @@ class AutoEncoder(Replayer):
             dropout=dropout
         )
 
-
     @property
     def name(self):
         return "{}".format("Generator --> VAE")
 
-
-    ##---- FORWARD FUNCTIONS ----##
+    ## ---- FORWARD FUNCTIONS ----##
 
     # initial observe traj lstm hidden states
+
     def init_obs_traj_lstm(self, batch):
         return (
             torch.randn(batch, self.traj_lstm_hidden_size).cuda(),
@@ -218,22 +227,20 @@ class AutoEncoder(Replayer):
         pred_traj_pos += [output]
         for i in range(self.obs_len-1):
             pred_lstm_h_t, pred_lstm_c_t = self.pred_lstm_model(
-                output, (pred_lstm_h_t, pred_lstm_c_t)  # todo whether use teach force, input_t --> output
+                # todo whether use teach force, input_t --> output
+                output, (pred_lstm_h_t, pred_lstm_c_t)
             )
             output = self.pred_hidden2pos(pred_lstm_h_t)
             pred_traj_pos += [output]
         outputs = torch.stack(pred_traj_pos)
         return outputs
 
-
-
     # Pass latent variable activations through feedback connections, to generator reconstructed image
     # def decode(self, z):
     #     hD = self.fromZ(z)
 
-
     def forward(self, obs_traj_pos, seq_start_end):
-        batch = obs_traj_pos.shape[1] #todo define the batch
+        batch = obs_traj_pos.shape[1]  # todo define the batch
         traj_lstm_h_t, traj_lstm_c_t = self.init_obs_traj_lstm(batch)
         # traj_lstm_h_t_2, traj_lstm_c_t_2 =self.init_obs_traj_lstm(batch)
         # pred_lstm_h_t, pred_lstm_c_t = self.init_pred_traj_lstm(batch)
@@ -266,9 +273,9 @@ class AutoEncoder(Replayer):
         # complete_input = torch.cat(
         #     (traj_lstm_hidden_states[-1], traj_lstm_hidden_states_2[-1]), dim=0
         # )    #
-        
+
         # encode (forward), reparameterize and decode (backward)
-        final_encoder_h  = traj_lstm_hidden_states[-1]
+        final_encoder_h = traj_lstm_hidden_states[-1]
         # social pooling (Reference:https://github.com/agrimgupta92/sgan)
         end_pos = obs_traj_pos[-1, :, :]
         pool_h = self.pool_net(final_encoder_h, seq_start_end, end_pos)
@@ -280,9 +287,7 @@ class AutoEncoder(Replayer):
         traj_recon = self.decode(z, seq_start_end, obs_traj_pos=obs_traj_pos)
         return (traj_recon, mu, logvar, z)
 
-
-
-    ##------- SAMPLE FUNCTIONS -------##
+    ## ------- SAMPLE FUNCTIONS -------##
 
     def sample(self, obs_traj_rel, obs_traj, replay_seq_start_end):
         '''Generate [size] samples from the model. Output is tensor (not "requiring grad"), on same device as <self>'''
@@ -299,7 +304,8 @@ class AutoEncoder(Replayer):
 
         # decode z into traj x
         with torch.no_grad():
-            traj_rel = self.decode(z, replay_seq_start_end, obs_traj_pos=obs_traj_rel)
+            traj_rel = self.decode(
+                z, replay_seq_start_end, obs_traj_pos=obs_traj_rel)
 
         # relative to absolute
         traj = relative_to_abs(traj_rel, obs_traj[0])
@@ -310,7 +316,7 @@ class AutoEncoder(Replayer):
         # returen samples as [batch_size]x[traj_size] tensor
         return replay_traj
 
-    ##-------- LOSS FUNCTIONS --------##
+    ## -------- LOSS FUNCTIONS --------##
 
     def calculate_recon_loss(self, x, x_recon, mode=False):
         '''Calculate reconstruction loss for each element in the batch.
@@ -329,14 +335,13 @@ class AutoEncoder(Replayer):
         #                                 reduction='none')
         # reconL = torch.mean(reconL, dim=1) if mode else torch.sum(reconL, dim=1)
 
-        reconL = (x.permute(1,0,2) - x_recon.permute(1,0,2)) ** 2
+        reconL = (x.permute(1, 0, 2) - x_recon.permute(1, 0, 2)) ** 2
         if mode == "sum":
             return torch.sum(reconL)
         elif mode == "average":
             return torch.sum(reconL) / (batch*seq_len*size)
         elif mode == "raw":
             return reconL.sum(dim=2).sum(dim=1)
-
 
     def calculate_variat_loss(self, mu, logvar):
         '''Calculate reconstruction loss for each element in the batch.
@@ -349,11 +354,12 @@ class AutoEncoder(Replayer):
 
         # --> calculate analytically
         # ---- see Appendix B from: Kingma & Welling (2014) Auto-Encoding Variational Bayes, ICLR ----#
-        variatL = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp(), dim=1)
+        variatL = -0.5 * torch.sum(1 + logvar -
+                                   mu.pow(2) - logvar.exp(), dim=1)
 
         return variatL
 
-    def loss_function(self, recon_x, x, y_hat= None, y_target=None, scores=None, mu=None, logvar=None):
+    def loss_function(self, recon_x, x, y_hat=None, y_target=None, scores=None, mu=None, logvar=None):
         '''Calculate and return various losses that could be used for training and/or evaluating the model.
 
         INPUT:   - [recon_x]     <4D-tensor> reconstructed traj in same shape as [x]
@@ -372,14 +378,17 @@ class AutoEncoder(Replayer):
                                     match the target "logits" ([scores])
         '''
 
-        ###---Reconstruction loss---###
-        reconL = self.calculate_recon_loss(x=x, x_recon=recon_x, mode=self.average)  # -> possibly average over traj
-        reconL = torch.mean(reconL)                                                     # -> average over batch
+        ### ---Reconstruction loss---###
+        reconL = self.calculate_recon_loss(
+            x=x, x_recon=recon_x, mode=self.average)  # -> possibly average over traj
+        # -> average over batch
+        reconL = torch.mean(reconL)
 
-        ###--- Variational loss ----###
+        ### --- Variational loss ----###
         if logvar is not None:
             variatL = self.calculate_variat_loss(mu=mu, logvar=logvar)
-            variatL = torch.mean(variatL)                               # -> average over batch
+            # -> average over batch
+            variatL = torch.mean(variatL)
             if self.average:
                 pass         # todo
         else:
@@ -395,7 +404,7 @@ class AutoEncoder(Replayer):
         # Return a tuple of the calculated losses
         return reconL, variatL
 
-    ##------- TRAINING FUNCTIONS -------##
+    ## ------- TRAINING FUNCTIONS -------##
 
     def train_a_batch(self, x_rel, y_rel, seq_start_end, x_=None, y_=None, seq_start_end_=None, rnt=0.5):
         '''Train model for one batch ([x],[y]),possibly supplemented with replayed data ([x_],[y_])
@@ -413,7 +422,7 @@ class AutoEncoder(Replayer):
         # Reset optimizer
         self.optimizer.zero_grad()
 
-        ##--(1)-- CURRENT DATA --##
+        ## --(1)-- CURRENT DATA --##
         precision = 0.
         if x_rel is not None:
 
@@ -425,7 +434,8 @@ class AutoEncoder(Replayer):
             #     pass              #
 
             # Calculate all losses
-            reconL, variatL = self.loss_function(recon_x=recon_batch, x=x_rel, y_hat=None, y_target=None, mu=mu, logvar=logvar)
+            reconL, variatL = self.loss_function(
+                recon_x=recon_batch, x=x_rel, y_hat=None, y_target=None, mu=mu, logvar=logvar)
 
             # Weigh losses as requested
             # loss_cur = self.lamda_rcl*reconL + self.lamda_vl*variatL + self.lamda_pl*predL
@@ -433,8 +443,7 @@ class AutoEncoder(Replayer):
 
             # Calculate training-precision  #
 
-
-        ##--(2)-- REPLAYED DATA --##
+        ## --(2)-- REPLAYED DATA --##
         if x_ is not None:
 
             n_replays = len(y_) if (y_ is not None) else 1
@@ -447,14 +456,14 @@ class AutoEncoder(Replayer):
             predL_r = [None]*n_replays
 
             # Run model (if [x_] is not a list with separate replay per task)
-            if (not type(x_)==list):
+            if (not type(x_) == list):
                 x_temp_ = x_
                 recon_batch, mu, logvar, z = self(x_temp_, seq_start_end_)
             # Loop to perform each replay
             for replay_id in range(n_replays):
 
                 # -if [x_] is a list with separate replay per task, evaluate model on this task's replay
-                if (type(x_)==list):
+                if (type(x_) == list):
                     x_temp_ = x_[replay_id]
                     recon_batch, mu, logvar, z = self(x_temp_)
 
@@ -464,7 +473,8 @@ class AutoEncoder(Replayer):
                 )
 
                 # Weigh losses as requested
-                loss_replay[replay_id] = self.lamda_rcl*reconL_r[replay_id] + self.lamda_vl*variatL_r[replay_id]
+                loss_replay[replay_id] = self.lamda_rcl * \
+                    reconL_r[replay_id] + self.lamda_vl*variatL_r[replay_id]
                 '''
                 if self.replay_target=="hard":
                     loss_replay[replay_id] += self.lamda_pl*predL_r[replay_id]
@@ -474,9 +484,8 @@ class AutoEncoder(Replayer):
 
         # Calculate total loss
         loss_replay = None if (x_ is None) else sum(loss_replay)/n_replays
-        loss_total = loss_replay if (x_rel is None) else (loss_cur if x_ is None else rnt*loss_cur+(1-rnt)*loss_replay)
-
-
+        loss_total = loss_replay if (x_rel is None) else (
+            loss_cur if x_ is None else rnt*loss_cur+(1-rnt)*loss_replay)
 
         # Backpropagate errors
         loss_total.backward()

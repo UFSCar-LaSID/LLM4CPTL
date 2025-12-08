@@ -17,6 +17,7 @@ from torch.utils.data import DataLoader
 # parser.add_argument('--loader_num_workers', default=8, type=int)
 # args = parser.parse_args()
 
+
 def seq_collate_(data):
     (obs_seq_list, pred_seq_list, obs_seq_rel_list, pred_seq_rel_list) = zip(*data)
     _len = [len(seq) for seq in obs_seq_list]
@@ -25,10 +26,10 @@ def seq_collate_(data):
         [start, end] for start, end in zip(cum_start_idx, cum_start_idx[1:])
     ]
 
-    obs_traj_ = torch.cat(obs_seq_list, dim=0).permute(1,0,2)
-    pred_traj_ = torch.cat(pred_seq_list, dim=0).permute(1,0,2)
-    obs_traj_rel_ = torch.cat(obs_seq_rel_list, dim=0).permute(1,0,2)
-    pred_traj_rel_ = torch.cat(pred_seq_rel_list, dim=0).permute(1,0,2)
+    obs_traj_ = torch.cat(obs_seq_list, dim=0).permute(1, 0, 2)
+    pred_traj_ = torch.cat(pred_seq_list, dim=0).permute(1, 0, 2)
+    obs_traj_rel_ = torch.cat(obs_seq_rel_list, dim=0).permute(1, 0, 2)
+    pred_traj_rel_ = torch.cat(pred_seq_rel_list, dim=0).permute(1, 0, 2)
     seq_start_end = torch.LongTensor(seq_start_end)
     out = [
         obs_traj_,
@@ -66,7 +67,6 @@ def memory_buff(args, batch_eth, batch_ucy):
 
     # print("one ucy batch")
 
-
     # ind
     train_path_ind = utils.get_dset_path("inD", 'train')
     train_dset_ind = data_dset(args, train_path_ind)
@@ -79,14 +79,11 @@ def memory_buff(args, batch_eth, batch_ucy):
 
     # print("one ind batch")
 
-
-
-
-
     obs_traj = torch.cat((batch_ucy[0], batch_ind[0], batch_eth[0]), dim=1)
     pred_traj = torch.cat((batch_ucy[1], batch_ind[1], batch_eth[1]), dim=1)
     obs_traj_rel = torch.cat((batch_ucy[2], batch_ind[2], batch_eth[2]), dim=1)
-    pred_traj_rel = torch.cat((batch_ucy[3], batch_ind[3], batch_eth[3]), dim=1)
+    pred_traj_rel = torch.cat(
+        (batch_ucy[3], batch_ind[3], batch_eth[3]), dim=1)
     seq_start_end_eth = batch_eth[6]
     _, end_eth = seq_start_end_eth[-1]
     seq_start_end_ucy = batch_ucy[6]
@@ -100,7 +97,8 @@ def memory_buff(args, batch_eth, batch_ucy):
     seq_start_end_ind = seq_start_end_ind + end_ucy
     seq_start_end_eth = seq_start_end_eth + end_ucy + end_ind
 
-    seq_start_end = torch.cat((seq_start_end_ucy, seq_start_end_ind, seq_start_end_eth), dim=0)
+    seq_start_end = torch.cat(
+        (seq_start_end_ucy, seq_start_end_ind, seq_start_end_eth), dim=0)
 
     out = [
         obs_traj,
@@ -126,9 +124,6 @@ def memory_buff(args, batch_eth, batch_ucy):
         collate_fn=seq_collate,
         pin_memory=True
     )
-
-
-
 
     # index = random.sample(range(0, seq_start_end.size(0)), 64)
     # index.sort()

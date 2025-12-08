@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-# Ya Wu 2022-08-03
+
+###################################
+# Imports and packages
+###################################
 import argparse
 import os
 import numpy as np
@@ -20,6 +23,9 @@ from helper.param_values import set_default_values
 from helper.param_stamp import get_param_stamp
 from helper.continual_learner import ContinualLearner
 
+###################################
+# Experiments arguments
+###################################
 parser = argparse.ArgumentParser('./main.py', description='Run experiment.')
 parser.add_argument('--get-stamp', action='store_true',
                     help="print param-stamp & exit")
@@ -33,14 +39,18 @@ parser.add_argument('--plot-dir', type=str,
                     default='./plots', dest='p_dir', help="default")
 parser.add_argument('--results-dir', type=str,
                     default='./results', dest='r_dir', help="default")
+
 dataset_choices = ['pedestrian', 'vehicle', 'interaction']
 parser.add_argument('--dataset_order', type=str,
                     default='pedestrian', choices=dataset_choices)
+
 method_choices = ['batch_learning', 'continual_learning']
 parser.add_argument('--method', type=str,
                     default='batch_learning', choices=method_choices)
 
-# training hyperparameters / initialization
+###################################
+# Training arguments
+###################################
 train_params = parser.add_argument_group('Training Parameters')
 train_params.add_argument('--iters', type=int, default=400,
                           help="batches to optimize solver")
@@ -58,20 +68,23 @@ train_params.add_argument('--skip', default=1, type=int)
 train_params.add_argument('--delim', default='\t')
 train_params.add_argument('--loader_num_workers', default=8, type=int)
 train_params.add_argument("--gpu_index", default=0, type=int)
+
 augmentation_choices = ["none", "rotation"]
 train_params.add_argument("--aug", type=str, default='none',
                           choices=augmentation_choices, help="whether to rotation the data")
+
 train_params.add_argument('--val_epoch', default=150,
                           type=int, help="epoch start to validation")
 
-#########################################################################################################################
-# main model architecture parameters #
-# lstm
+###################################
+# Main model arguments
+###################################
+# LSTM
 model_params = parser.add_argument_group('Main Model Parameters')
 model_params.add_argument('--traj_lstm_input_size', default=2, type=int)
 model_params.add_argument('--traj_lstm_hidden_size', default=32, type=int)
 model_params.add_argument('--traj_lstm_output_size', default=32, type=int)
-# gat
+# GAT
 model_params.add_argument("--heads", type=str, default="4,1",
                           help="Heads in each layer, splitted with comma")
 model_params.add_argument("--hidden-units", type=str, default="16",
@@ -83,11 +96,14 @@ model_params.add_argument("--dropout", type=float,
                           default=0, help="Dropout rate (1 - keep probability)")
 model_params.add_argument("--alpha", type=float,
                           default=0.2, help="Alpha for the leaky_relu.")
+
 model_choices = ["lstm", "gat"]
 model_params.add_argument('--main_model', default='lstm', type=str,
                           choices=model_choices, help="the main model of CL and BL")
 
-# train-parameters for generative model (if separate model)
+###################################
+# Generative model arguments
+###################################
 gen_params = parser.add_argument_group('Generator Hyper Parameters')
 gen_params.add_argument('--g-iters', type=int,
                         help="batches to train generator (default: same as lstm)")
@@ -96,14 +112,18 @@ gen_params.add_argument('--lr_gen', type=float, default=0.001,
 gen_params.add_argument('--replay_batch_size', type=int, default=64,
                         help="replay batch size, it is same with batch size")
 
-# "memory replay" parameters
+###################################
+# Memory replay arguments
+###################################
 replay_params = parser.add_argument_group('Generative Replay Parameters')
 replay_params.add_argument(
     '--z_dim', type=int, default=200, help="size of latent representation")
+
 replay_choices = ['offline', 'exact',
                   'generative', 'none', 'current', 'exemplars']
 replay_params.add_argument(
     '--replay', type=str, default='none', choices=replay_choices)
+
 replay_params.add_argument('--x_dim', default=2, type=int)
 replay_params.add_argument('--h_dim', default=64, type=int)
 replay_params.add_argument('--n_layers', default=1, type=int)
@@ -112,7 +132,9 @@ replay_model_choices = ['lstm', 'vrnn', 'condition']
 replay_params.add_argument('--replay_model', default='lstm', type=str,
                            choices=replay_model_choices, help="the generative replay model of CL")
 
-# "memory allocation" parameters
+###################################
+# Memory allocation arguments
+###################################
 cl_params = parser.add_argument_group('Memory Allocation Parameters')
 cl_params.add_argument('--si', action='store_true',
                        help="use 'Synaptic Intelligence' (Zenke, Poole et al, 2017)")
@@ -121,9 +143,10 @@ cl_params.add_argument('--c', type=float, dest="si_c",
 cl_params.add_argument('--epsilon', type=float, default=0.1,
                        dest="epsilon", help="--> SI: dampening parameter")
 
-
-# evaluation parameters
-eval_params = parser.add_argument_group('Evaluation Parameters')
+###################################
+# Evolution arguments
+###################################
+eval_params = parser.add_argument_group('Evaluation parameters')
 eval_params.add_argument('--time', action='store_true',
                          help="keep track of total training time")
 eval_params.add_argument('--metrics', action='store_true',
@@ -134,9 +157,11 @@ eval_params.add_argument('--visdom', action='store_true',
                          help="use visdom for on-the-fly plots")
 eval_params.add_argument('--val', action='store_true',
                          help="use validation data")
+
 class_choices = ['current', 'all', 'replay']
 eval_params.add_argument('--val_class', default='current', type=str, choices=class_choices,
                          help='whether use current or previous task validation data')
+
 eval_params.add_argument(
     '--log-per-task', action='store_true', help="set all visdom-logs to [iters]")
 eval_params.add_argument('--loss-log', type=int, default=20,
@@ -150,9 +175,57 @@ eval_params.add_argument('--sample-log', type=int, default=500,
 eval_params.add_argument('--num_samples', type=int, default=20,
                          help="sample trajectories when evaluation model")
 
-##########################################################################################################################
-# batch learning
-batch_params = parser.add_argument_group('Batch learning Parameters')
+###################################
+# Large language model (LLM) arguments
+###################################
+llm_params = parser.add_argument_group('Large language model (LLM) parameters')
+llm_params.add_argument("--adapt_architecture_to_include_llm_motion_cues",
+                        action='store_true', help="")
+
+llm_motion_cues_and_clusters_ids_filepaths_mapping = {
+    "ETH": {
+        "llm_motion_cues": "/home/matheus/LLM4CPTL/cptl_with_social_gr/data_preprocessed/llm_motion_cues_qwen3-0.6b_qwen3-embedding-0.6b_ETH_1024_0.8_512_none_10.json",
+        "clusters_ids": "/home/matheus/LLM4CPTL/cptl_with_social_gr/data_preprocessed/clusters_id_map_ETH.json",
+    },
+
+    "UCY": {
+        "llm_motion_cues": "/home/matheus/LLM4CPTL/cptl_with_social_gr/data_preprocessed/llm_motion_cues_qwen3-0.6b_qwen3-embedding-0.6b_UCY_1024_0.8_512_none_10.json",
+        "clusters_ids": "/home/matheus/LLM4CPTL/cptl_with_social_gr/data_preprocessed/clusters_id_map_UCY.json",
+    },
+
+    "inD": {
+        "llm_motion_cues": "/home/matheus/LLM4CPTL/cptl_with_social_gr/data_preprocessed/llm_motion_cues_qwen3-0.6b_qwen3-embedding-0.6b_inD_1024_0.8_512_none_10.json",
+        "clusters_ids": "/home/matheus/LLM4CPTL/cptl_with_social_gr/data_preprocessed/clusters_id_map_inD.json",
+    },
+
+    "INTERACTION": {
+        "llm_motion_cues": "/home/matheus/LLM4CPTL/cptl_with_social_gr/data_preprocessed/llm_motion_cues_qwen3-0.6b_qwen3-embedding-0.6b_INTERACTION_1024_0.8_512_none_10.json",
+        "clusters_ids": "/home/matheus/LLM4CPTL/cptl_with_social_gr/data_preprocessed/clusters_id_map_INTERACTION.json",
+    },
+}
+llm_params.add_argument("--llm_motion_cues_and_clusters_ids_filepaths_mapping",
+                        type=dict, default=llm_motion_cues_and_clusters_ids_filepaths_mapping, help="")
+
+###################################
+# Observed trajectory concatenation arguments
+###################################
+zp_params = parser.add_argument_group('Observed trajectory concatenation')
+zp_params.add_argument("--use_observed_trajectories_Zp",
+                       action='store_true', help="")
+zp_params.add_argument("--Zp_dim", default=32, type=int)
+
+###################################
+# Positional encoding arguments
+###################################
+pe_params = parser.add_argument_group('Positional encoding')
+pe_params.add_argument("--adapt_architecture_to_include_positional_encoding",
+                       action='store_true', help="")
+pe_params.add_argument("--PE_dim", default=32, type=int)
+
+###################################
+# Batch learning arguments
+###################################
+batch_params = parser.add_argument_group('Batch learning parameters')
 batch_params.add_argument("--log_dir", default="ETH",
                           help="Directory containing logging file")
 batch_params.add_argument("--dataset_name", default="ETH", type=str)
@@ -164,20 +237,33 @@ batch_params.add_argument("--resume", default="", type=str,
 batch_params.add_argument("--checkpoint_log", default=50,
                           type=int, help="iters after which to save checkpoint")
 
+###################################
+# Codecarbon arguments
+###################################
+codecarbon_params = parser.add_argument_group('Codecarbon parameters')
+codecarbon_params.add_argument(
+    "--use_codecarbon", action='store_true', help="")
+
+###################################
+# Functions
+###################################
+
 
 def run(args, verbose=False):
-
-    # Use cuda?
+    # Device definition:
     cuda = torch.cuda.is_available() and args.cuda
     device = torch.device('cuda', index=args.gpu_index) if torch.cuda.is_available(
     ) else torch.device('cpu')
+
     if torch.cuda.is_available():
         torch.cuda.set_device(args.gpu_index)
+
     print(device)
+
     if verbose:
         print("CUDA is {}used".format("" if cuda else "NOT(!!) "))
 
-    # Set random seeds
+    # Set random seeds:
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
     if cuda:
@@ -190,18 +276,45 @@ def run(args, verbose=False):
     )
     n_heads = [int(x) for x in args.heads.strip().split(",")]
 
+    # Identification of the name of the requested experiment to be run:
+    variation_of_clsgr_executed = ""
+    if args.method == "batch_learning":
+        variation_of_clsgr_executed = "IL"
+    elif args.method == "continual_learning":
+        variation_of_clsgr_executed = "CL_"
+        if args.replay == "none":
+            variation_of_clsgr_executed += "NR"
+        elif args.replay == "exemplars":
+            variation_of_clsgr_executed += "ER"
+        elif args.replay == "generative" and args.replay_model == "condition":
+            variation_of_clsgr_executed += "CGR"
+        else:
+            variation_of_clsgr_executed += "SGR"
+
+    # Carbon emission tracker if requested for this experiment:
+    if args.use_codecarbon:
+        from codecarbon import EmissionsTracker
+
+        tracker_carboncode = EmissionsTracker(
+            project_name=f"{variation_of_clsgr_executed}_{args.replay}_{args.obs_len}_{args.pred_len}_{args.batch_size}_{args.replay_batch_size if variation_of_clsgr_executed != 'IL' else None}_{args.iters}_{args.main_model}",
+            output_dir=args.r_dir,
+            output_file=f"{variation_of_clsgr_executed}_emissions_{args.dataset_name}_{args.iters}_{args.batch_size}.csv" if args.method == 'batch_learning' else f"{variation_of_clsgr_executed}_emissions_{args.iters}_{args.batch_size}.csv"
+        )
+
     ###############################################################################
-    ##################
-    ## Batch learning##
-    ##################
+    # Batch learning
+    ###############################################################################
     if args.method == "batch_learning":
         if not os.path.exists(args.log_dir):
             os.makedirs(args.log_dir)
+
         utils.set_logger(os.path.join(
             os.path.abspath(args.log_dir), "IL_train.log"))
+
         checkpoint_dir = args.log_dir + "/checkpoint"
         if os.path.exists(checkpoint_dir) is False:
             os.mkdir(checkpoint_dir)
+
         train_path = utils.get_dset_path(args.dataset_name, "train")
         val_path = utils.get_dset_path(args.dataset_name, "val")
 
@@ -216,6 +329,7 @@ def run(args, verbose=False):
         val_dset = data_dset(args, val_path)
         val_loader = data_loader(args, val_dset, args.batch_size)
         writer = SummaryWriter()
+
         if args.main_model == "lstm":
             from main_model.encoder import Predictor
             model = Predictor(
@@ -252,6 +366,12 @@ def run(args, verbose=False):
                 logging.info(
                     "=> no checkpoint found at '{}'".format(args.resume))
 
+        if args.time:
+            start = time.time()
+
+        if args.use_codecarbon:
+            tracker_carboncode.start()
+
         for epoch in range(args.start_epoch, args.iters + 1):
             train(args, model, train_loader, optimizer, epoch, writer)
             if epoch >= args.val_epoch:
@@ -276,31 +396,43 @@ def run(args, verbose=False):
 
         writer.close()
 
+        if args.use_codecarbon:
+            _ = tracker_carboncode.stop()
+
+        # Get total training-time in seconds, and write to file
+        if args.time:
+            param_stamp = get_param_stamp(
+                args, model.name, verbose=verbose, replay=True if (
+                    not args.replay == "none") else False,
+                replay_model_name=generator.name if (
+                    args.replay == "generative") else None,
+            )
+
+            training_time = time.time() - start
+            time_file = open("{}/{}_time-{}.txt".format(args.r_dir,
+                             variation_of_clsgr_executed, param_stamp), 'w')
+            time_file.write('{}\n'.format(training_time))
+            time_file.close()
+
+        if verbose and args.time:
+            print("=> Total training time = {:.1f} seconds\n".format(
+                training_time))
+
     ###############################################################################
-    ######################
-    ## Continual learning##
-    ######################
-
+    # Continual learning
+    ###############################################################################
     if args.method == "continual_learning":
-        variation_of_clsgr_executed = "CL_"
-        if args.replay == "none":
-            variation_of_clsgr_executed += "NR"
-        elif args.replay == "exemplars":
-            variation_of_clsgr_executed += "ER"
-        elif args.replay == "generative" and args.replay_model == "condition":
-            variation_of_clsgr_executed += "CGR"
-        else:
-            variation_of_clsgr_executed += "SGR"
-
         # Set default arguments & check for incompatible options
         args.lr_gen = args.lr if args.lr_gen is None else args.lr_gen
         args.g_iters = args.iters if args.g_iters is None else args.g_iters
-        # -if [log_per_task], reset all logs
+
+        # If [log_per_task], reset all logs:
         if args.log_per_task:
             args.prec_log = args.iters
             args.loss_log = args.iters
             args.sample_log = args.iters
-        # -create plots- and results-directories if needed
+
+        # Create plots and results directories if they do not exist yet:
         if not os.path.isdir(args.r_dir):
             os.mkdir(args.r_dir)
         if args.pdf and not os.path.isdir(args.p_dir):
@@ -314,7 +446,8 @@ def run(args, verbose=False):
         # Prepare data for chosen experiment
         if verbose:
             print("\nPreparing the data...")
-        #
+
+        # Defining train, validation, and test dataset orders:
         if args.dataset_order == 'pedestrian':
             train_order = ['ETH', 'UCY', 'inD', 'INTERACTION']
             val_order = ['ETH', 'UCY', 'inD', 'INTERACTION']
@@ -328,12 +461,16 @@ def run(args, verbose=False):
             val_order = ['MT', 'SR', 'LN', 'OF']
             test_order = ['MT', 'SR', 'LN', 'OF']
 
+        # Number of tasks (datasets) to be analyzed:
         tasks = len(train_order)
+
+        # Lists to storage the readed datasets and data loader objects:
         train_datasets = []
         val_datasets = []
         val_dataset = []
         test_datasets = []
 
+        # Loading the correct loader function according to the the preprocessing to be applid on data (if any):
         if args.aug == "none":
             from data.loader import data_loader, data_dset
         else:
@@ -341,36 +478,51 @@ def run(args, verbose=False):
 
         print("\nInitializing train dataset")
         for i, dataset_name in enumerate(train_order):
-            # load train/val dataset path
+            if args.adapt_architecture_to_include_llm_motion_cues:
+                print(
+                    f"LLM-generated descriptions and embeddings will be loaded from {args.llm_motion_cues_and_clusters_ids_filepaths_mapping[dataset_name]['llm_motion_cues']}")
+
             train_path = utils.get_dset_path(dataset_name, 'train')
-            # load train dataset
-            train_dset = data_dset(args, train_path)
-            # train_loader = data_loader(args, train_dset, args.batch_size)
-            print("dataset: {} | train trajectories: {}".format(
-                dataset_name, (train_dset.obs_traj.shape[0])))
+
+            train_dset = data_dset(
+                args,
+                train_path,
+                t_embedding_path=args.llm_motion_cues_and_clusters_ids_filepaths_mapping[
+                    dataset_name]["llm_motion_cues"] if args.adapt_architecture_to_include_llm_motion_cues else None,
+                dataset_name=dataset_name
+            )
+
+            print(
+                f"Dataset: {dataset_name} | Split: train | Number of trajectories: {train_dset.obs_traj.shape[0]}")
+
             train_datasets.append(train_dset)
 
         print("\nInitializing val dataset")
         for i, dataset_name in enumerate(val_order):
-            # load val dataset path
             val_path = utils.get_dset_path(dataset_name, "val")
-            # load val dataset
+
             val_dset = data_dset(args, val_path)
+
             val_loader = data_loader(args, val_dset, args.batch_size)
-            print("dataset: {} | val trajectories: {}".format(
-                dataset_name, (val_dset.obs_traj.shape[0])))
+
+            print(
+                f"Dataset: {dataset_name} | Split: val | Number of trajectories: {val_dset.obs_traj.shape[0]}")
+
             val_datasets.append(val_dset)
+
             val_dataset.append(val_loader)
 
         print("\nInitializing test dataset")
         for i, dataset_name in enumerate(test_order):
-            # load test dataset path
             test_path = utils.get_dset_path(dataset_name, "test")
-            # load test dataset
+
             test_dset = data_dset(args, test_path)
+
             test_loader = data_loader(args, test_dset, args.batch_size)
-            print("dataset: {} | test trajectories: {}".format(
-                dataset_name, (test_dset.obs_traj.shape[0])))
+
+            print(
+                f"Dataset: {dataset_name} | Split: test | Number of trajectories: {test_dset.obs_traj.shape[0]}")
+
             test_datasets.append(test_loader)
 
         # --------------------------------------------------------------------------------------------------#
@@ -406,6 +558,7 @@ def run(args, verbose=False):
         else:
             raise ValueError(
                 "Unrecognized optimizer, '{}' is not currently a valid option".format(args.optimizer))
+
         best_ade = 200
 
         # -----------------------------------------------------------------------------------------------------------------#
@@ -419,42 +572,55 @@ def run(args, verbose=False):
         # ---------------------------#
         # ----CL-STRATEGY: REPLAY----#
         # ---------------------------#
-        # If needed, specify separate model for the generator
+        # Boolean flag that indicates wheter a generator must be trained to generate the replay:
         train_gen = True if (args.replay == "generative") else False
+
+        # If a replay generator must be trained, then:
         if train_gen:
             fake_generator = None
-            # -specify architecture
-            # lstm
-            if args.replay_model == 'lstm':
+            # Replay model architecture: LSTM or condition
+            if args.replay_model == 'lstm' or args.replay_model == 'condition':
                 from generative_model.vae_models import AutoEncoder
-                generator = AutoEncoder(obs_len=args.obs_len, pred_len=args.pred_len, traj_lstm_input_size=args.traj_lstm_input_size,
-                                        traj_lstm_hidden_size=args.traj_lstm_hidden_size, traj_lstm_output_size=args.traj_lstm_output_size,
-                                        z_dim=args.z_dim).to(device)
-            # condition
-            if args.replay_model == 'condition':
-                from generative_model.vae_models import AutoEncoder
-                generator = AutoEncoder(obs_len=args.obs_len, pred_len=args.pred_len, traj_lstm_input_size=args.traj_lstm_input_size,
-                                        traj_lstm_hidden_size=args.traj_lstm_hidden_size, traj_lstm_output_size=args.traj_lstm_output_size,
-                                        z_dim=args.z_dim).to(device)
-            # -set optimizer(s)
+
+                generator = AutoEncoder(obs_len=args.obs_len,
+                                        pred_len=args.pred_len,
+                                        traj_lstm_input_size=args.traj_lstm_input_size,
+                                        traj_lstm_hidden_size=args.traj_lstm_hidden_size,
+                                        traj_lstm_output_size=args.traj_lstm_output_size,
+                                        z_dim=args.z_dim,
+                                        adapt_architecture_to_include_llm_motion_cues=args.adapt_architecture_to_include_llm_motion_cues,
+                                        adapt_architecture_to_include_positional_encoding=args.adapt_architecture_to_include_positional_encoding,
+                                        positional_encoding_dim=args.PE_dim
+                                        ).to(device)
+
+            # Define optimizer(s)
             generator.optim_type = args.optimizer
             if generator.optim_type in ("adam", "adam_reset"):
                 generator.optimizer = optim.Adam(
                     generator.parameters(), lr=args.lr_gen)
+
             elif generator.optim_type == "sgd":
                 generator.optimizer = optim.SGD(generator.optim_list)
+
+        # In case a replay generator must NOT be trained, then:
         else:
             generator = None
-            # lstm
+
             if args.replay_model == 'lstm':
                 from generative_model.vae_models import AutoEncoder
-                fake_generator = AutoEncoder(obs_len=args.obs_len, pred_len=args.pred_len,
+
+                fake_generator = AutoEncoder(obs_len=args.obs_len,
+                                             pred_len=args.pred_len,
                                              traj_lstm_input_size=args.traj_lstm_input_size,
                                              traj_lstm_hidden_size=args.traj_lstm_hidden_size,
                                              traj_lstm_output_size=args.traj_lstm_output_size,
-                                             z_dim=args.z_dim).to(device)
+                                             z_dim=args.z_dim,
+                                             adapt_architecture_to_include_llm_motion_cues=args.adapt_architecture_to_include_llm_motion_cues,
+                                             adapt_architecture_to_include_positional_encoding=args.adapt_architecture_to_include_positional_encoding,
+                                             positional_encoding_dim=args.PE_dim
+                                             ).to(device)
 
-            # -set optimizer(s)
+            # -Define optimizer(s):
             fake_generator.optim_type = args.optimizer
             if fake_generator.optim_type in ("adam", "adam_reset"):
                 fake_generator.optimizer = optim.Adam(
@@ -470,9 +636,12 @@ def run(args, verbose=False):
         # Get parameter-stamp (and print on screen)
         if verbose:
             print("\nParameter-stamp...")
+
         param_stamp = get_param_stamp(
-            args, model.name, verbose=verbose, replay=True if (
-                not args.replay == "none") else False,
+            args,
+            model.name,
+            verbose=verbose,
+            replay=True if (not args.replay == "none") else False,
             replay_model_name=generator.name if (
                 args.replay == "generative") else None,
         )
@@ -490,6 +659,7 @@ def run(args, verbose=False):
             metric_dict = evaluate.initiate_metrics_dict(n_tasks=tasks)
             metric_dict = evaluate.intial_accuracy(
                 model, test_datasets, metric_dict)
+
         else:
             metric_dict = None
 
@@ -512,38 +682,70 @@ def run(args, verbose=False):
         # -----------------#  #
 
         # Callbacks for reporting and visualizing accuracy
-        generator_loss_cbs = [
-            cb._VAE_loss_cb(log=args.loss_log, visdom=visdom, model=generator, tasks=tasks,
-                            iters_per_task=args.g_iters,
-                            replay=False if args.replay == "none" else True)
-        ] if (train_gen) else [None]
-        fake_generator_loss_cbs = [
-            cb._VAE_loss_cb(log=args.loss_log, visdom=visdom, model=fake_generator, tasks=tasks,
-                            iters_per_task=args.g_iters,
-                            replay=False if args.replay == "none" else True)
-        ] if (train_gen) is False else [None]
-        solver_loss_cbs = [
-            cb._solver_loss_cb(log=args.loss_log, visdom=visdom, model=model, tasks=tasks,
-                               iters_per_task=args.iters, replay=False if args.replay == "none" else True)
-        ]
-        solver_val_loss_cbs = [
-            cb._solver_val_loss_cb(log=args.loss_log, visdom=visdom, model=model, tasks=tasks,
-                                   iters_per_task=args.iters, replay=False if args.replay == "none" else True)
-        ]
+        generator_loss_cbs = fake_generator_loss_cbs = [None]
 
         # Callbacks for evaluating and plotting generated / reconstructed samples
-        sample_cbs = [] if (train_gen) else [None]
+        sample_cbs = [None]
+
+        if train_gen:
+            generator_loss_cbs = [
+                cb._VAE_loss_cb(log=args.loss_log,
+                                visdom=visdom,
+                                model=generator,
+                                tasks=tasks,
+                                iters_per_task=args.g_iters,
+                                replay=False if args.replay == "none" else True
+                                )
+            ]
+
+            fake_generator_loss_cbs = [
+                cb._VAE_loss_cb(log=args.loss_log,
+                                visdom=visdom,
+                                model=fake_generator,
+                                tasks=tasks,
+                                iters_per_task=args.g_iters,
+                                replay=False if args.replay == "none" else True
+                                )
+            ]
+
+            sample_cbs = []
+
+        solver_loss_cbs = [
+            cb._solver_loss_cb(log=args.loss_log,
+                               visdom=visdom,
+                               model=model,
+                               tasks=tasks,
+                               iters_per_task=args.iters,
+                               replay=False if args.replay == "none" else True
+                               )
+        ]
+
+        solver_val_loss_cbs = [
+            cb._solver_val_loss_cb(log=args.loss_log,
+                                   visdom=visdom,
+                                   model=model,
+                                   tasks=tasks,
+                                   iters_per_task=args.iters,
+                                   replay=False if args.replay == "none" else True
+                                   )
+        ]
 
         # Callbacks for reporting and visualizing accuracy
         eval_cbs = [
-            cb._eval_cb(log=args.prec_log, test_datasets=val_dataset, visdom=visdom,
-                        iters_per_task=args.iters)
+            cb._eval_cb(log=args.prec_log,
+                        test_datasets=val_dataset,
+                        visdom=visdom,
+                        iters_per_task=args.iters
+                        )
         ]
 
         # Callbacks for calculating statists required for metrics
         metric_cbs = [
-            cb._metric_cb(log=args.iters, test_datasets=test_datasets,
-                          iters_per_task=args.iters, metrics_dict=metric_dict)
+            cb._metric_cb(log=args.iters,
+                          test_datasets=test_datasets,
+                          iters_per_task=args.iters,
+                          metrics_dict=metric_dict
+                          )
         ]
 
         # -----------------------------------------------------------------------------------------------------------------#
@@ -553,20 +755,54 @@ def run(args, verbose=False):
 
         if verbose:
             print("\nTraining...")
-        # Keep track of training-time
-        start = time.time()
+
+        # Keep track of training duration, if requested:
+        if args.time:
+            start = time.time()
+
+        # Keep track of carbon emission, if requested:
+        if args.use_codecarbon:
+            tracker_carboncode.start()
+
         # Train model
-        diag_ades, diag_fdes = train_cl(args, best_ade, model, train_datasets, val_datasets, replay_model=args.replay, iters=args.iters, batch_size=args.batch_size,
-                                        generator=generator, fake_generator=fake_generator, gen_iters=args.g_iters, gen_loss_cbs=generator_loss_cbs, fake_gen_loss_cbs=fake_generator_loss_cbs,
-                                        sample_cbs=sample_cbs, eval_cbs=eval_cbs, loss_cbs=solver_loss_cbs, val_loss_cbs=solver_val_loss_cbs,
-                                        metric_cbs=metric_cbs, test_order=test_order)
-        # Get total training-time in seconds, and write to file
+        diag_ades, diag_fdes, elpased_time_for_each_task = train_cl(args,
+                                                                    best_ade,
+                                                                    model,
+                                                                    train_datasets,
+                                                                    val_datasets,
+                                                                    replay_model=args.replay,
+                                                                    iters=args.iters,
+                                                                    batch_size=args.batch_size,
+                                                                    generator=generator,
+                                                                    fake_generator=fake_generator,
+                                                                    gen_iters=args.g_iters,
+                                                                    gen_loss_cbs=generator_loss_cbs,
+                                                                    fake_gen_loss_cbs=fake_generator_loss_cbs,
+                                                                    sample_cbs=sample_cbs,
+                                                                    eval_cbs=eval_cbs,
+                                                                    loss_cbs=solver_loss_cbs,
+                                                                    val_loss_cbs=solver_val_loss_cbs,
+                                                                    metric_cbs=metric_cbs,
+                                                                    test_order=test_order
+                                                                    )
+
+        # Keep track of carbon emission, if requested:
+        if args.use_codecarbon:
+            _ = tracker_carboncode.stop()
+
+        # Get total training duration in seconds and write it into a file
         if args.time:
             training_time = time.time() - start
-            time_file = open("{}/{}_time-{}.txt".format(args.r_dir,
-                             variation_of_clsgr_executed, param_stamp), 'w')
+            time_file = open(
+                f"{args.r_dir}/{variation_of_clsgr_executed}_time-{param_stamp}.txt", 'w')
             time_file.write('{}\n'.format(training_time))
             time_file.close()
+
+        # Save trained model to a file for future load and inference:
+        model_checkpoint_filename = f"{args.r_dir}/{variation_of_clsgr_executed}_model_{model.name}_{args.iters}_{args.batch_size}_{args.replay_batch_size}.pth"
+        utils.save_checkpoint(args=args, state=model.state_dict(
+        ), is_best=False, filename=model_checkpoint_filename)
+        print(f"Trained model saved to {model_checkpoint_filename}")
 
         # ------------------------------------------------------------------------------------------------------------------#
         # ------------------#
@@ -585,27 +821,26 @@ def run(args, verbose=False):
             fdes.append(fde)
         average_ades = sum(ades) / tasks
         average_fdes = sum(fdes) / tasks
-        # -print on screen
+
         if verbose:
             print("\n Precision on test-set")
             for i in range(tasks):
-                print(
-                    " - Task {}: ADE {:.4f} FDE {:.4f}".format(i+1, ades[i], fdes[i]))
-            print("==> Average precision over all {} tasks: ADE {:.4f} FDE {:.4f}".format(
-                tasks, average_ades, average_fdes))
+                print(f" - Task {i+1}: ADE {ades[i]:.4f} FDE {fdes[i]:.4f}")
+            print(
+                f"==> Average precision over all {tasks} tasks: ADE {average_ades:.4f} FDE {average_fdes:.4f}")
 
         if verbose and args.time:
-            print("=> Total training time = {:.1f} seconds\n".format(
-                training_time))
+            print(f"=> Total training time = {training_time:.1f} seconds\n")
 
-        if args.metrics and diag_ades is not None and diag_fdes is not None:
-            backward_transfer_bwt_ade = (
-                sum(ades) - sum(diag_ades)) / (tasks - 1)
-            backward_transfer_bwt_fde = (
-                sum(fdes) - sum(diag_fdes)) / (tasks - 1)
+        if args.metrics:
+            backward_transfer_bwt_ade = backward_transfer_bwt_ade = 0
+            if diag_ades is not None and diag_fdes is not None:
+                backward_transfer_bwt_ade = (
+                    sum(ades) - sum(diag_ades)) / (tasks - 1)
+                backward_transfer_bwt_fde = (
+                    sum(fdes) - sum(diag_fdes)) / (tasks - 1)
 
-            metrics_filename = "{}/{}_metrics-{replay}-{iters}-{batch_size}-{replay_batch_size}-{lr}-{main_model}-{train_order}-{seed}-{val}-{val_class}.csv".format(
-                args.r_dir, variation_of_clsgr_executed, replay=args.replay, iters=args.iters, batch_size=args.batch_size, replay_batch_size=args.replay_batch_size, lr=args.lr, main_model=model.name, train_order=args.dataset_order, seed=args.seed, val=args.val, val_class=args.val_class)
+            metrics_filename = f"{args.r_dir}/{variation_of_clsgr_executed}_metrics-{args.replay}-{args.iters}-{args.batch_size}-{args.replay_batch_size}-{args.lr}-{args.main_model}-{args.dataset_order}-{args.seed}-{args.val}-{args.val_class}.csv"
             metrics_data = {
                 'method': variation_of_clsgr_executed,
                 'train_dataset': ' - '.join(train_order),
@@ -627,14 +862,21 @@ def run(args, verbose=False):
 
             for i in range(tasks):
                 metrics_data.update(
-                    {'ade_task{}_after_training_in_all_tasks'.format(i+1): ades[i]})
+                    {f"ade_task{i+1}_after_training_in_all_tasks": ades[i]}
+                )
+
                 metrics_data.update(
-                    {'fde_task{}_after_training_in_all_tasks'.format(i+1): fdes[i]})
+                    {f"fde_task{i+1}_after_training_in_all_tasks": fdes[i]}
+                )
+
+                metrics_data.update(
+                    {f"elapsed_time_task_{i+1}": elpased_time_for_each_task[i]}
+                )
 
             metrics_dataframe = pd.DataFrame(metrics_data, index=[0])
             metrics_dataframe.to_csv(metrics_filename, index=False)
 
-            print("\nGenerated CSV file with metrics: {}".format(metrics_filename))
+            print(f"\nGenerated CSV file with metrics: {metrics_filename}")
 
         # ------------------------------------------------------------------------------------------------------------------#
         # -------------------#
@@ -642,10 +884,11 @@ def run(args, verbose=False):
         # -------------------# #
 
         # Average precision on full test set
-        output_file = open("{}/{}_prec-{replay}-{iters}-{z_dim}-{batch_size}-{replay_batch_size}-{lr}-{aug}-{main_model}-{train_order}-{seed}-{val}-{val_class}-si{si}-{si_c}.txt".format(args.r_dir, variation_of_clsgr_executed, replay=args.replay, iters=args.iters,
-                           z_dim=args.z_dim, batch_size=args.batch_size, replay_batch_size=args.replay_batch_size, lr=args.lr, aug=args.aug, main_model=model.name, train_order=args.dataset_order, seed=args.seed, val=args.val, val_class=args.val_class, si=args.si, si_c=args.si_c), "w")
-        output_file.write('Training:{order}\nADEs:{ades}\nADE:{ade}\nFDEs:{fdes}\nFDE:{fde}'.format(
-            order=train_order, ades=ades, ade=average_ades, fdes=fdes, fde=average_fdes))
+        output_file = open(f"{args.r_dir}/{variation_of_clsgr_executed}_prec-{args.replay}-{args.iters}-{args.z_dim}-{args.batch_size}-{args.replay_batch_size}-{args.lr}-{args.aug}-{args.main_model}-{args.dataset_order}-{args.seed}-{args.val}-{args.val_class}-si{args.si}-{args.si_c}.txt", "w")
+
+        output_file.write(
+            f"Training:{train_order}\nADEs:{ades}\nADE:{average_ades}\nFDEs:{fdes}\nFDE:{average_fdes}")
+
         output_file.close()
 
         # ------------------------------------------------------------------------------------------------------------------#
@@ -656,9 +899,7 @@ def run(args, verbose=False):
 
         # If requested, generate pdf
         if args.pdf:
-            # -open pdf
-            plot_name = "{}/{}-{}-{}-{}-{}-{}-{}-{}-{}.pdf".format(
-                args.p_dir, variation_of_clsgr_executed, args.replay, args.iters, args.aug, args.seed, args.val, args.val_class, args.si, args.si_c)
+            plot_name = f"{args.p_dir}/{variation_of_clsgr_executed}-{args.replay}-{args.iters}-{args.aug}-{args.seed}-{args.val}-{args.val_class}-{args.si}-{args.si_c}.pdf"
             pp = visual_plt.open_pdf(plot_name)
 
             # -show metrics reflecting progression during training
@@ -721,33 +962,31 @@ def run(args, verbose=False):
                 pp.savefig(figure)
 
             # output
-            output_file = open(
-                "{}/{variation}_ADE-FDE-{replay}-{iters}-{z_dim}-{batch_size}-{replay_batch_size}-{lr}-{aug}-{main_model}-{train_order}-{seed}_{val}_{val_class}_{si}_{si_c}.txt".format(args.r_dir, variation=variation_of_clsgr_executed, replay=args.replay,
-                                                                                                                                                                                         iters=args.iters,
-                                                                                                                                                                                         z_dim=args.z_dim,
-                                                                                                                                                                                         batch_size=args.batch_size,
-                                                                                                                                                                                         replay_batch_size=args.replay_batch_size,
-                                                                                                                                                                                         lr=args.lr_gen, aug=args.aug,
-                                                                                                                                                                                         main_model=model.name,
-                                                                                                                                                                                         train_order=args.dataset_order, seed=args.seed,
-                                                                                                                                                                                         val=args.val, val_class=args.val_class, si=args.si, si_c=args.si_c),
-                "w")
-            output_file.write('ADEs:{ades}\nAverage_ADE:{ade}\nFDEs:{fdes}\nAverage_FDE:{fde}'.format(
-                ades=plot_ade_list, ade=metric_dict["average_ade"], fdes=plot_fde_list, fde=metric_dict["average_fde"]))
+            output_file = open(f"{args.r_dir}/{variation_of_clsgr_executed}_ADE-FDE-{args.replay}-{args.iters}-{args.z_dim}-{args.batch_size}-{args.replay_batch_size}-{args.lr}-{args.aug}-{args.main_model}-{args.dataset_order}-{args.seed}_{args.val}_{args.val_class}_{args.si}_{args.si_c}.txt", "w")
+
+            output_file.write(
+                'ADEs:{plot_ade_list}\nAverage_ADE:{metric_dict["average_ade"]}\nFDEs:{plot_fde_list}\nAverage_FDE:{metric_dict["average_fde"]}')
+
             output_file.close()
 
             results_dict = {}
             results_dict["parameters"] = {
-                "iters": args.iters, "z_dim": args.z_dim, "batch_size": args.batch_size, "lr": args.lr}
+                "iters": args.iters,
+                "z_dim": args.z_dim,
+                "batch_size": args.batch_size,
+                "lr": args.lr
+            }
+
             results_dict["training order"] = train_order
             results_dict["ade per task"] = plot_ade_list
             results_dict["fde per task"] = plot_fde_list
             results_dict["average ade per task"] = metric_dict["average_ade"]
             results_dict["average fde per task"] = metric_dict["average_fde"]
-            utils.save_dict(results_dict, "{r_dir}/{variation}_continual_learning_{replay}_{z_dim}_{batch_size}_{replay_batch_size}_{aug}_{main_model}_{train_order}_{seed}_{val}_{val_class}_{si}_{si_c}".format(r_dir=args.r_dir, variation=variation_of_clsgr_executed,
-                            replay=args.replay, z_dim=args.z_dim, batch_size=args.batch_size, replay_batch_size=args.replay_batch_size, aug=args.aug, main_model=model.name, train_order=args.dataset_order, seed=args.seed, val=args.val, val_class=args.val_class, si=args.si, si_c=args.si_c))
-            utils.save_dict_txt(results_dict, "{r_dir}/{variation}_continual_learning_{replay}_{z_dim}_{batch_size}_{replay_batch_size}_{aug}_{main_model}_{train_order}_{seed}_{val}_{val_class}_{si}_{si_c}".format(r_dir=args.r_dir, variation=variation_of_clsgr_executed,
-                                replay=args.replay, z_dim=args.z_dim, batch_size=args.batch_size, replay_batch_size=args.replay_batch_size, aug=args.aug, main_model=model.name, train_order=args.dataset_order, seed=args.seed, val=args.val, val_class=args.val_class, si=args.si, si_c=args.si_c))
+
+            utils.save_dict(results_dict, f"{args.r_dir}/{variation_of_clsgr_executed}_continual_learning_{args.replay}_{args.z_dim}_{args.batch_size}_{args.replay_batch_size}_{args.aug}_{args.main_model}_{args.dataset_order}_{args.seed}_{args.val}_{args.val_class}_{args.si}_{args.si_c}")
+
+            utils.save_dict_txt(
+                results_dict, f"{args.r_dir}/{variation_of_clsgr_executed}_continual_learning_{args.replay}_{args.z_dim}_{args.batch_size}_{args.replay_batch_size}_{args.aug}_{args.main_model}_{args.dataset_order}_{args.seed}_{args.val}_{args.val_class}_{args.si}_{args.si_c}")
 
             # -close pdf
             pp.close()
@@ -757,10 +996,13 @@ def run(args, verbose=False):
                 print("\nGenerated plot: {}\n".format(plot_name))
 
 
+###################################
+# Main program
+###################################
 if __name__ == '__main__':
-    # -load input-arguments
+    # Load arguments
     args = parser.parse_args()
-    # -set default-values for certain arguments based on chosen scenario & experiment
+    # Set default values for certain arguments
     args = set_default_values(args)
-    # -run experiment
+    # Run experiment
     run(args, verbose=True)

@@ -25,6 +25,7 @@ torch.cuda.set_device(0)
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--log_dir", default="ETH", help="Directory containing logging file")
+parser.add_argument('--iters', type=int, default=400, help="number of iterations that the model was trained on")
 parser.add_argument('--results-dir', type=str, default='./results', dest='r_dir', help="default")
 parser.add_argument("--dataset_name_train", default="ETH", type=str)
 parser.add_argument("--dataset_name_test", default="ETH", type=str)
@@ -114,7 +115,7 @@ def main(args):
         )
     )
     
-    metrics_filename = "{}/IL_metrics-{dataset_name_train}-{dataset_name_test}-{aug}-{main_model}.csv".format(args.r_dir, dataset_name_train=args.dataset_name_train, dataset_name_test=args.dataset_name_test, aug=args.aug, main_model=args.main_model)
+    metrics_filename = "{}/IL_metrics-{dataset_name_train}-{dataset_name_test}-{iters}-{batch_size}-{aug}-{main_model}.csv".format(args.r_dir, dataset_name_train=args.dataset_name_train, dataset_name_test=args.dataset_name_test, iters=args.iters, batch_size=args.batch_size, aug=args.aug, main_model=args.main_model)
     metrics_data = {
         'method': 'IL',
         'train_dataset': args.dataset_name_train,
@@ -126,7 +127,7 @@ def main(args):
         'prediction_length': args.pred_len,
         'batch_size': args.batch_size,
         'replay_batch_size': None,
-        'iters': None,
+        'iters': args.iters,
         'main_predictor_model': args.main_model,
         'average_prediction_error_ape_ade': ade,
         'average_prediction_error_ape_fde': fde,

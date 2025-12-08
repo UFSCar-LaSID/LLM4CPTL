@@ -41,6 +41,8 @@ def seq_collate(data):
     return tuple(out)     # tuple(out)
 
 
+
+
 class TrajectoryDataset(Dataset):
     """Dataloder for the Trajectory datasets"""
 
@@ -66,13 +68,16 @@ class TrajectoryDataset(Dataset):
         """
         super(TrajectoryDataset, self).__init__()
 
+
+
         # Convert numpy -> Torch Tensor
-        self.obs_traj = obs_traj.permute(1, 2, 0)
-        self.pred_traj = pred_traj.permute(1, 2, 0)
-        self.obs_traj_rel = obs_traj_rel.permute(1, 2, 0)
-        self.pred_traj_rel = pred_traj_rel.permute(1, 2, 0)
+        self.obs_traj = obs_traj.permute(1,2,0)
+        self.pred_traj = pred_traj.permute(1,2,0)
+        self.obs_traj_rel = obs_traj_rel.permute(1,2,0)
+        self.pred_traj_rel = pred_traj_rel.permute(1,2,0)
         self.seq_start_end = seq_start_end
         self.num_seq = obs_traj.size(0)
+
 
     def __len__(self):
         return self.num_seq

@@ -1,3 +1,9 @@
+#!/usr/bin/env python3
+
+###################################
+# Imports and packages
+###################################
+
 import tqdm
 import copy
 import torch
@@ -8,6 +14,10 @@ from helper import evaluate
 from data.loader import data_loader, data_dset
 from torch.autograd import Variable
 import shutil
+
+###################################
+# Functions
+###################################
 
 
 def train(args, model, train_loader, optimizer, epoch, writer):
@@ -87,6 +97,8 @@ def train_cl(args, best_ade, model, train_datasets, val_datasets, replay_model="
     diag_fdes = [0.0] * num_tasks
     ###########################################################
 
+    elpased_time_for_each_task = []
+
     # Use cuda?
     cuda = model._is_on_cuda()
     device = model._device()
@@ -165,6 +177,8 @@ def train_cl(args, best_ade, model, train_datasets, val_datasets, replay_model="
                     non_linear_ped,
                     loss_mask,
                     seq_start_end,
+                    global_indices,
+                    t_embeddings
                 ) = batch
 
                 # -------------Collect data----------------#
@@ -233,8 +247,11 @@ def train_cl(args, best_ade, model, train_datasets, val_datasets, replay_model="
                                                                 replay_out[6].to(device))
                         x_rel_ = replay_traj.cuda()
                         seq_start_end_ = seq_start_end
-                    # previous_model.eval()
-                    # y_rel_ = previous_model(x_rel_, seq_start_end_)
+                    if variation_of_clsgr_executed == "CL_SGR":
+                        previous_model.eval()
+                        with torch.no_grad():
+                            y_rel_ = previous_model(x_rel_, seq_start_end_)
+                        previous_model.train()
                     if args.replay_model == "condition":
                         # memory_seq = [obs_traj, pred_traj_gt, obs_traj_rel, pred_traj_gt_rel, seq_start_end]
                         # replay_traj = [traj, traj_rel, seq_start_end]
@@ -617,6 +634,9 @@ def train_cl(args, best_ade, model, train_datasets, val_datasets, replay_model="
         model.train()
         ###########################################################
 
+        elapsed_time_for_this_task = progress.format_dict['elapsed']
+        elpased_time_for_each_task.append(elapsed_time_for_this_task)
+
         # Close progress-bar(s)
         progress.close()
         if generator is not None:
@@ -656,6 +676,11 @@ def train_cl(args, best_ade, model, train_datasets, val_datasets, replay_model="
             Exact = True
 
     if args.metrics:
-        return diag_ades, diag_fdes
+        if args.time:
+            return diag_ades, diag_fdes, elpased_time_for_each_task
+        else:
+            return diag_ades, diag_fdes, None
+    elif args.time:
+        return None, None, elpased_time_for_each_task
     else:
-        return None, None
+        return None, None, None
