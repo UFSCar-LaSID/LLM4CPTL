@@ -14,6 +14,8 @@ def get_data_loader():
     pass
 
 # Get dataset path
+
+
 def get_dset_path(dset_name, dset_type):
     _dir = os.path.dirname(__file__)
     # _dir = _dir.split("/")[:-1]
@@ -21,6 +23,8 @@ def get_dset_path(dset_name, dset_type):
     return os.path.join(_dir, '../datasets', dset_name, dset_type)
 
 # relative to absolute
+
+
 def relative_to_abs(rel_traj, start_pos):
     """
     Inputs:
@@ -37,9 +41,7 @@ def relative_to_abs(rel_traj, start_pos):
     return abs_traj.permute(1, 0, 2)
 
 
-
-
-##-------------------------------------------------------------------------------------------------------------------##
+## -------------------------------------------------------------------------------------------------------------------##
 
 ################################
 ## Model-inspection functions ##
@@ -51,7 +53,7 @@ def count_parameters(model, verbose=True):
     for param in model.parameters():
         n_params = index_dims = 0
         for dim in param.size():
-            n_params = dim if index_dims==0 else n_params*dim
+            n_params = dim if index_dims == 0 else n_params*dim
             index_dims += 1
         total_params += n_params
         if param.requires_grad:
@@ -63,7 +65,8 @@ def count_parameters(model, verbose=True):
               .format(total_params, round(total_params / 1000000, 1)))
         print("    of which: - learnable: {} (~{} million)".format(learnable_params,
                                                                    round(learnable_params / 1000000, 1)))
-        print("              - fixed: {} (~{} million)".format(fixed_params, round(fixed_params / 1000000, 1)))
+        print("              - fixed: {} (~{} million)".format(fixed_params,
+              round(fixed_params / 1000000, 1)))
     return total_params, learnable_params, fixed_params
 
 
@@ -74,9 +77,6 @@ def print_model_info(model, title="MODEL"):
     print(90*"-")
     _ = count_parameters(model)
     print(90*"-")
-
-
-
 
 
 # Calculate l2_loss
@@ -103,6 +103,8 @@ def l2_loss(pred_traj, pred_traj_gt, random=0, mode="average"):
         return loss.sum(dim=2).sum(dim=1)
 
 # Calculate ADE metric
+
+
 def displacement_error(pred_traj, pred_traj_gt, consider_ped=None, mode="sum"):
     '''
     Input:
@@ -115,11 +117,11 @@ def displacement_error(pred_traj, pred_traj_gt, consider_ped=None, mode="sum"):
     '''
 
     seq_len, _, _ = pred_traj.size()
-    loss = pred_traj_gt.permute(1,0,2) - pred_traj.permute(1,0,2)
+    loss = pred_traj_gt.permute(1, 0, 2) - pred_traj.permute(1, 0, 2)
 
     loss = loss ** 2
     if consider_ped is not None:
-        loss = torch.sqrt(loss.sum(dim=2)).sum(dim=1) *consider_ped
+        loss = torch.sqrt(loss.sum(dim=2)).sum(dim=1) * consider_ped
     else:
         loss = torch.sqrt(loss.sum(dim=2)).sum(dim=1)
     if mode == "sum":
@@ -130,6 +132,8 @@ def displacement_error(pred_traj, pred_traj_gt, consider_ped=None, mode="sum"):
         return loss
 
 # Calculate FDE metric
+
+
 def final_displacement_error(pred_pos, pred_pos_gt, condiser_ped=None, mode="sum"):
     '''
     Input:
@@ -153,7 +157,7 @@ def final_displacement_error(pred_pos, pred_pos_gt, condiser_ped=None, mode="sum
 
 
 ##################
-##Batch learning##
+## Batch learning##
 ##################
 class AverageMeter(object):
     """Computes and stores the average and current value"""
@@ -178,6 +182,7 @@ class AverageMeter(object):
     def __str__(self):
         fmtstr = "{name} {val" + self.fmt + "} ({avg" + self.fmt + "})"
         return fmtstr.format(**self.__dict__)
+
 
 class ProgressMeter(object):
     def __init__(self, num_batches, meters, prefix=""):
@@ -226,15 +231,19 @@ def set_logger(log_path):
         stream_handler.setFormatter(logging.Formatter("%(message)s"))
         logger.addHandler(stream_handler)
 
+
 def int_tuple(s):
     return tuple(int(i) for i in s.split(","))
 
 # for batch learning training
+
+
 def save_checkpoint(args, state, is_best, filename="checkpoint.pth.tar", model_name=None):
     torch.save(state, filename)
     if is_best:
         logging.info("-------------- lower ade ----------------")
-        shutil.copyfile(filename, "{}/IL_{}_{}_{}_best.pth.tar".format(args.log_dir,model_name, args.log_dir, args.aug))
+        shutil.copyfile(filename, "{}/IL_{}_{}_{}_best.pth.tar".format(
+            args.log_dir, model_name, args.log_dir, args.aug))
 
 
 # for evaluation model
@@ -242,9 +251,10 @@ def save_dict(obj, name):
     with open(name+'.pkl', 'wb') as f:
         pickle.dump(obj, f, pickle.HIGHEST_PROTOCOL)
 
+
 def save_dict_txt(obj, name):
     with open(name+'.txt', 'w') as f:
-        for k,v in obj.items():
+        for k, v in obj.items():
             f.write(str(k)+':'+str(v)+'\n')
     f.close()
 
@@ -268,18 +278,22 @@ def validate_cl(args, model, val_loader, epoch, writer=None):
                 non_linear_ped,
                 loss_mask,
                 seq_start_end,
+                global_indices,
+                t_embeddings,
             ) = batch
             ade, fde = [], []
             loss_val = torch.zeros(1).to(pred_traj_gt)
             total_traj += pred_traj_gt.size(1)
             pred_len = pred_traj_gt.size(0)
-            loss_mask = loss_mask[:, args.obs_len :]
+            loss_mask = loss_mask[:, args.obs_len:]
             pred_traj_fake_rel = model(obs_traj_rel, seq_start_end)
 
-            pred_traj_fake_rel_predpart = pred_traj_fake_rel[-args.pred_len :]
-            pred_traj_fake = relative_to_abs(pred_traj_fake_rel_predpart, obs_traj[-1])
+            pred_traj_fake_rel_predpart = pred_traj_fake_rel[-args.pred_len:]
+            pred_traj_fake = relative_to_abs(
+                pred_traj_fake_rel_predpart, obs_traj[-1])
             ade_, fde_ = cal_ade_fde(pred_traj_gt, pred_traj_fake)
-            loss_val += l2_loss(pred_traj_fake_rel_predpart, pred_traj_gt_rel, loss_mask, mode="average")
+            loss_val += l2_loss(pred_traj_fake_rel_predpart,
+                                pred_traj_gt_rel, loss_mask, mode="average")
             losses_val.update(loss_val.item(), obs_traj.shape[1])
             ade_sum = sum(ade_)
             fde_sum = sum(fde_)
@@ -290,7 +304,6 @@ def validate_cl(args, model, val_loader, epoch, writer=None):
 
     # model.train(mode=mode)
     return ade, losses_val.avg
-
 
 
 def validate_cl_replay(args, model, x_rel_val, y_rel_val, seq_start_end_val):
@@ -304,12 +317,11 @@ def validate_cl_replay(args, model, x_rel_val, y_rel_val, seq_start_end_val):
         pred_len = y_rel_val.size(0)
         pred_traj_fake_rel = model(x_rel_val, seq_start_end_val)
         pred_traj_fake_rel_predpart = pred_traj_fake_rel[-args.pred_len:]
-        pred_traj_fake = relative_to_abs(pred_traj_fake_rel_predpart, x_rel_val[-1])
+        pred_traj_fake = relative_to_abs(
+            pred_traj_fake_rel_predpart, x_rel_val[-1])
         ade_, _ = cal_ade_fde(y_rel_val, pred_traj_fake)
         ade = sum(ade_).item() / (total_traj * pred_len)
         return ade
-
-
 
 
 def evaluate_helper(error, seq_start_end):
@@ -324,11 +336,12 @@ def evaluate_helper(error, seq_start_end):
         sum_ += _error
     return sum_
 
+
 def cal_ade_fde(pred_traj_gt, pred_traj_fake):
     ade_ = displacement_error(pred_traj_fake, pred_traj_gt, mode="raw")
-    fde_ = final_displacement_error(pred_traj_fake[-1], pred_traj_gt[-1], mode="raw")
+    fde_ = final_displacement_error(
+        pred_traj_fake[-1], pred_traj_gt[-1], mode="raw")
     return ade_, fde_
-
 
 
 def validate(args, model, val_loader, epoch, writer=None):
@@ -350,15 +363,18 @@ def validate(args, model, val_loader, epoch, writer=None):
                 non_linear_ped,
                 loss_mask,
                 seq_start_end,
+                global_indices,
+                t_embeddings,
             ) = batch
             ade, fde = [], []
             total_traj += pred_traj_gt.size(1)
             pred_len = pred_traj_gt.size(0)
-            loss_mask = loss_mask[:, args.obs_len :]
+            loss_mask = loss_mask[:, args.obs_len:]
             pred_traj_fake_rel = model(obs_traj_rel, seq_start_end)
 
-            pred_traj_fake_rel_predpart = pred_traj_fake_rel[-args.pred_len :]
-            pred_traj_fake = relative_to_abs(pred_traj_fake_rel_predpart, obs_traj[-1])
+            pred_traj_fake_rel_predpart = pred_traj_fake_rel[-args.pred_len:]
+            pred_traj_fake = relative_to_abs(
+                pred_traj_fake_rel_predpart, obs_traj[-1])
             ade_, fde_ = cal_ade_fde(pred_traj_gt, pred_traj_fake)
             ade_sum = sum(ade_)
             fde_sum = sum(fde_)
@@ -366,8 +382,8 @@ def validate(args, model, val_loader, epoch, writer=None):
             fde_outer.append(fde_sum)
         ade = sum(ade_outer).item() / (total_traj * pred_len)
         fde = sum(fde_outer).item() / (total_traj)
-            # if i % args.print_every == 0:
-            #     progress.display(i)
+        # if i % args.print_every == 0:
+        #     progress.display(i)
 
         logging.info(
             " * ADE  {ade:.3f} FDE  {fde:.3f}".format(ade=ade, fde=fde)
