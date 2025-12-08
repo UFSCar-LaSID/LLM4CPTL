@@ -16,12 +16,11 @@ def evaluate_helper(error, seq_start_end):
     return sum_
 
 
+#### --------------------------------------------------------------------------------------------------------------####
 
-####--------------------------------------------------------------------------------------------------------------####
-
-####---------------------------####
-####----METRIC CALCULATIONS----####
-####---------------------------####
+#### ---------------------------####
+#### ----METRIC CALCULATIONS----####
+#### ---------------------------####
 
 def initiate_metrics_dict(n_tasks):
     metrics_dict = {}
@@ -35,6 +34,7 @@ def initiate_metrics_dict(n_tasks):
         metrics_dict["ade per task"]["task {}".format(i+1)] = []
         metrics_dict["fde per task"]["task {}".format(i+1)] = []
     return metrics_dict
+
 
 def intial_accuracy(model, datasets, metric_dict, test_size=None, verbose=False, no_task_mask=False):
     n_tasks = len(datasets)
@@ -68,12 +68,16 @@ def metric_statistics(model, datasets, current_task, iteration,
         ades_all_classes_.append(ade_)
         fdes_all_classes_.append(fde_)
 
-    average_ades = sum([ades_all_classes_[task_id] for task_id in range(current_task)]) / current_task
-    average_fdes = sum([fdes_all_classes_[task_id] for task_id in range(current_task)]) / current_task
+    average_ades = sum([ades_all_classes_[task_id]
+                       for task_id in range(current_task)]) / current_task
+    average_fdes = sum([fdes_all_classes_[task_id]
+                       for task_id in range(current_task)]) / current_task
 
     for task_id in range(n_tasks):
-        metrics_dict["ade per task"]["task {}".format(task_id+1)].append(ades_all_classes_[task_id])
-        metrics_dict["fde per task"]["task {}".format(task_id+1)].append(fdes_all_classes_[task_id])
+        metrics_dict["ade per task"]["task {}".format(
+            task_id+1)].append(ades_all_classes_[task_id])
+        metrics_dict["fde per task"]["task {}".format(
+            task_id+1)].append(fdes_all_classes_[task_id])
 
     metrics_dict["average_ade"].append(average_ades)
     metrics_dict["average_fde"].append(average_fdes)
@@ -85,17 +89,18 @@ def metric_statistics(model, datasets, current_task, iteration,
     return metrics_dict
 
 
+### ---------------------------------------------------------------------------------------------------###
 
-###---------------------------------------------------------------------------------------------------###
-
-##-----------------------------##
-##----PREDICTION EVALUATION----##
-##-----------------------------##
+## -----------------------------##
+## ----PREDICTION EVALUATION----##
+## -----------------------------##
 
 def cal_ade_fde(pred_traj_gt, pred_traj_fake):
     ade_ = utils.displacement_error(pred_traj_fake, pred_traj_gt, mode="raw")
-    fde_ = utils.final_displacement_error(pred_traj_fake[-1], pred_traj_gt[-1], mode="raw")
+    fde_ = utils.final_displacement_error(
+        pred_traj_fake[-1], pred_traj_gt[-1], mode="raw")
     return ade_, fde_
+
 
 def evaluate(loader, predictor):
     ade_outer, fde_outer = [], []
@@ -111,7 +116,9 @@ def evaluate(loader, predictor):
                 non_linear_ped,
                 loss_mask,
                 seq_start_end,
-            ) =batch
+                global_indices,
+                t_embeddings,
+            ) = batch
 
             ade, fde = [], []
             total_traj += pred_traj_gt.size(1)
@@ -119,7 +126,8 @@ def evaluate(loader, predictor):
 
             for _ in range(1):
                 pred_traj_fake_rel = predictor(obs_traj_rel, seq_start_end)
-                pred_traj_fake = utils.relative_to_abs(pred_traj_fake_rel, obs_traj[-1])
+                pred_traj_fake = utils.relative_to_abs(
+                    pred_traj_fake_rel, obs_traj[-1])
                 ade_, fde_ = cal_ade_fde(pred_traj_gt, pred_traj_fake)
                 ade.append(ade_)
                 fde.append(fde_)
@@ -161,13 +169,14 @@ def validate(model, dataset_name, batch_size=128, test_size=1024, verbose=True):
     '''
     return ade, fde
 
+
 def precision(model, datasets, current_task, iteration, classes_per_task=None, scenario="domain",
               test_size=None, visdom=None, verbose=False, summary_graph=True):
     n_tasks = len(datasets)
     ades = []
     fdes = []
     for i in range(n_tasks):
-        if i+1 <=current_task:
+        if i+1 <= current_task:
             ade, fde = validate(model, datasets[i])
             ades.append(ade)
             fdes.append(fde)
@@ -175,18 +184,22 @@ def precision(model, datasets, current_task, iteration, classes_per_task=None, s
             ades.append(0)
             fdes.append(0)
 
-    average_ades = sum([ades[task_id] for task_id in range(current_task)]) / current_task
-    average_fdes = sum([fdes[task_id] for task_id in range(current_task)]) / current_task
+    average_ades = sum([ades[task_id]
+                       for task_id in range(current_task)]) / current_task
+    average_fdes = sum([fdes[task_id]
+                       for task_id in range(current_task)]) / current_task
 
     # Send results to visdom server
     names = ['task {}'.format(i+1) for i in range(n_tasks)]
     if visdom is not None:
         visual_visdom.visualize_scalars(
-            ades, names=names, title="ADE on validation set (CL_{})".format(visdom["graph"]),
+            ades, names=names, title="ADE on validation set (CL_{})".format(
+                visdom["graph"]),
             iteration=iteration, env=visdom["env"], ylable="ADE precision"
         )
         visual_visdom.visualize_scalars(
-            fdes, names=names, title="FDE on validation set (CL_{})".format(visdom["graph"]),
+            fdes, names=names, title="FDE on validation set (CL_{})".format(
+                visdom["graph"]),
             iteration=iteration, env=visdom["env"], ylable="FDE precision"
         )
         if n_tasks > 1 and summary_graph:
@@ -198,10 +211,3 @@ def precision(model, datasets, current_task, iteration, classes_per_task=None, s
                 [average_fdes], names=["FDE"], title="Average FDE on validation set (CL_{})".format(visdom["graph"]),
                 iteration=iteration, env=visdom["env"], ylable="FDE precision"
             )
-
-
-
-
-
-
-
