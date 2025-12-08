@@ -1,49 +1,49 @@
 #!/bin/bash
 
-# PBS settings:
-#PBS -N cptlsgr
-#PBS -q testegpu
-#PBS -l nodes=1:ppn=8
-#PBS -e /home/lovelace/proj/proj1034/mtsvvb/LLM4CPTL/logs/cptlsgr_CLER_error.log
-#PBS -o /home/lovelace/proj/proj1034/mtsvvb/LLM4CPTL/logs/cptlsgr_CLER_output.log
-#PBS -m abe
-#PBS -k oed
-
-# CUDA-specific commands:
-unset CUDA_VISIBLE_DEVICES
-
 # Variables:
-user_root_folder=/home/lovelace/proj/proj1034/mtsvvb
+user_root_folder=/home/matheus
 python_script=$user_root_folder/LLM4CPTL/cptl_with_social_gr/main.py
-batch_size=100000
+batch_size=1024
 replay_batch_size=$batch_size
-iters=2
-
-# Modules:
-module load miniconda3/22.11.1-gcc-9.4.0
+iters=200
 
 # Conda-specific commands:
-source /opt/pub/spack/miniconda3/22.11.1/gcc/9.4.0/etc/profile.d/conda.sh
+source ~/miniconda3/etc/profile.d/conda.sh
 
 # Virtual environment:
-conda activate cptlsgr
+conda activate cptlsgr38
 
 # Reading, writing, and execution permission for the main script of this job:
 chmod 777 $python_script
 
-# Muda para o diretório de trabalho:
+# Muda para o diret�rio de trabalho:
 cd $user_root_folder/LLM4CPTL/cptl_with_social_gr
 
 # Main script execution:
-python $python_script \
-    --method=continual_learning \
-	--replay=exemplars \
+nohup python $python_script \
+	--method=continual_learning \
+	--replay=exemplars  \
 	--batch_size=$batch_size \
 	--replay_batch_size=$replay_batch_size \
 	--iters=$iters \
 	--time \
+	--metrics \
 	--pdf \
-	--metrics
+	> ../logs/tmp_out.log \
+	2> ../logs/tmp_err.log &
+
+# Captura o PID do processo Python
+pid=$!
+
+# Renomeia os logs tempor�rios com o PID real
+mv ../logs/tmp_out.log ../logs/cptlsgr_CLER_output_${pid}.log
+mv ../logs/tmp_err.log ../logs/cptlsgr_CLER_error_${pid}.log
+
+echo "Process PID:  $pid"
+echo "Logs: ../logs/cptlsgr_output_$pid.log e ../logs/cptlsgr_error_$pid.log"
+
+# Desvincula o processo do shell
+disown $pid
 
 # Virtual environment:
 conda deactivate
