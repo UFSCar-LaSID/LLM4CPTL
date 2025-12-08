@@ -3,13 +3,14 @@
 *.log
 IL_*
 CL_*
-results/
-plots/
-runs/
-ETH/
-UCY/
-inD/
-INTERACTION/
+cptl_with_social_gr/results/
+cptl_with_social_gr/plots/
+cptl_with_social_gr/runs/
+cptl_with_social_gr/ETH/
+cptl_with_social_gr/UCY/
+cptl_with_social_gr/inD/
+cptl_with_social_gr/INTERACTION/
+cptl_with_social_gr/data_preprocessed/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
