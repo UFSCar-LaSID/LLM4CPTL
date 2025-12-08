@@ -3,9 +3,9 @@
 # Variables:
 user_root_folder=/home/matheus
 python_script=$user_root_folder/LLM4CPTL/cptl_with_social_gr/main.py
-batch_size=100000
+batch_size=1024
 replay_batch_size=$batch_size
-iters=400
+iters=200
 
 # Conda-specific commands:
 source ~/miniconda3/etc/profile.d/conda.sh
@@ -16,7 +16,7 @@ conda activate cptlsgr
 # Reading, writing, and execution permission for the main script of this job:
 chmod 777 $python_script
 
-# Muda para o diretório de trabalho:
+# Muda para o diretï¿½rio de trabalho:
 cd $user_root_folder/LLM4CPTL/cptl_with_social_gr
 
 # Main script execution:
@@ -36,7 +36,7 @@ nohup python $python_script \
 # Captura o PID do processo Python
 pid=$!
 
-# Renomeia os logs temporários com o PID real
+# Renomeia os logs temporï¿½rios com o PID real
 mv ../logs/tmp_out.log ../logs/cptlsgr_CLCGR_output_${pid}.log
 mv ../logs/tmp_err.log ../logs/cptlsgr_CLCGR_error_${pid}.log
 
