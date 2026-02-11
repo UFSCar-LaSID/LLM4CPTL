@@ -18,72 +18,6 @@ from torch.utils.data import Dataset
 logger = logging.getLogger(__name__)
 
 
-class SceneBatch:
-    def __init__(self, batch_data, device='cpu'):
-        # Verifica se é dicionário (o novo formato)
-        if isinstance(batch_data, dict):
-            self.obs_traj = batch_data['obs_traj']
-            self.pred_traj = batch_data['pred_traj']
-            self.obs_traj_rel = batch_data['obs_traj_rel']
-            self.pred_traj_rel = batch_data['pred_traj_rel']
-            self.non_linear_ped = batch_data['non_linear_ped']
-            self.loss_mask = batch_data['loss_mask']
-            self.seq_start_end = batch_data['seq_start_end']
-
-            # Novos campos (Embeddings e Nomes)
-            # Usa .get() para não quebrar se o campo não existir
-            self.sequence_embeddings = batch_data.get(
-                'sequence_embedding', None)
-            self.sequence_names = batch_data.get('sequence_name', None)
-
-        # Fallback: Se for Lista/Tupla (o formato antigo)
-        else:
-            (
-                self.obs_traj,
-                self.pred_traj,
-                self.obs_traj_rel,
-                self.pred_traj_rel,
-                self.non_linear_ped,
-                self.loss_mask,
-                self.seq_start_end,
-                self.sequence_embeddings,  # Assumindo índice 7
-                self.sequence_names       # Assumindo índice 8
-            ) = batch_data
-
-        # Move para GPU automaticamente se solicitado
-        self.to(device)
-
-    def to(self, device):
-        # Só move se for Tensor torch
-        if isinstance(self.obs_traj, torch.Tensor):
-            self.obs_traj = self.obs_traj.to(device)
-
-        if isinstance(self.pred_traj, torch.Tensor):
-            self.pred_traj = self.pred_traj.to(device)
-
-        if isinstance(self.obs_traj_rel, torch.Tensor):
-            self.obs_traj_rel = self.obs_traj_rel.to(device)
-
-        if isinstance(self.pred_traj_rel, torch.Tensor):
-            self.pred_traj_rel = self.pred_traj_rel.to(device)
-
-        if isinstance(self.loss_mask, torch.Tensor):
-            self.loss_mask = self.loss_mask.to(device)
-
-        if isinstance(self.seq_start_end, torch.Tensor):
-            self.seq_start_end = self.seq_start_end.to(device)
-
-        if isinstance(self.sequence_embeddings, torch.Tensor):
-            self.sequence_embeddings = self.sequence_embeddings.to(device)
-
-        # NOTA: Não movemos self.sequence_names pois é lista de strings!
-
-        return self
-
-    def __len__(self):
-        return self.obs_traj.shape[1]
-
-
 def seq_collate(data):
     """
     A custom collate function for the DataLoader.
@@ -111,8 +45,7 @@ def seq_collate(data):
         pred_seq_rel_list,
         non_linear_ped_list,
         loss_mask_list,
-        sequence_embedding_list,
-        sequence_name_list
+        t_embedding_list,
     ) = zip(*data)
 
     # Get the number of pedestrians in each scene of the batch
@@ -133,7 +66,7 @@ def seq_collate(data):
     pred_traj = torch.cat(pred_seq_list, dim=0).permute(2, 0, 1)
     obs_traj_rel = torch.cat(obs_seq_rel_list, dim=0).permute(2, 0, 1)
     pred_traj_rel = torch.cat(pred_seq_rel_list, dim=0).permute(2, 0, 1)
-    sequence_embeddings = torch.cat(sequence_embedding_list, dim=0)
+    t_embeddings = torch.cat(t_embedding_list, dim=0)
 
     # Concatenate the non-linear flags and loss masks
     non_linear_ped = torch.cat(non_linear_ped_list)
@@ -142,22 +75,18 @@ def seq_collate(data):
     # Convert seq_start_end to a tensor
     seq_start_end = torch.LongTensor(seq_start_end)
 
-    sequence_name_flat = [
-        name for sublist in sequence_name_list for name in sublist]
+    out = [
+        obs_traj,
+        pred_traj,
+        obs_traj_rel,
+        pred_traj_rel,
+        non_linear_ped,
+        loss_mask,
+        seq_start_end,
+        t_embeddings,
+    ]
 
-    batch_dict = {
-        'obs_traj': obs_traj,
-        'pred_traj': pred_traj,
-        'obs_traj_rel': obs_traj_rel,
-        'pred_traj_rel': pred_traj_rel,
-        'non_linear_ped': non_linear_ped,
-        'loss_mask': loss_mask,
-        'seq_start_end': seq_start_end,
-        'sequence_embedding': sequence_embeddings,
-        'sequence_name': sequence_name_flat
-    }
-
-    return batch_dict
+    return tuple(out)
 
 
 def read_file(_path, delim="\t"):
@@ -235,7 +164,7 @@ class TrajectoryDataset(Dataset):
         threshold=0.002,
         min_ped=1,
         delim="\t",
-        sequences_embeddings_path=None,
+        t_embedding_path=None,
         dataset_name="",
         split_name="train"
     ):
@@ -258,37 +187,30 @@ class TrajectoryDataset(Dataset):
         self.skip = skip
         self.seq_len = self.obs_len + self.pred_len
         self.delim = delim
-
-        self.sequences_embeddings_loaded = False
-        self.sequences_embeddings_dimension = 0
-
+        self.t_embedding_map = {}
+        self.embeddings_loaded = False
+        self.t_embed_dim = 0
         self.dataset_name = dataset_name
         self.split_name = split_name
 
-        if sequences_embeddings_path and os.path.exists(sequences_embeddings_path):
-            try:
-                print(
-                    f"Loading sequence embeddings from: {sequences_embeddings_path}")
-                self.sequences_embeddings = torch.load(
-                    sequences_embeddings_path, map_location='cpu')
+        try:
+            with open(t_embedding_path, 'r') as f:
+                self.t_embedding_map = json.load(f)
 
-                if len(self.sequences_embeddings) > 0:
-                    self.sequences_embeddings_dimension = next(
-                        iter(self.sequences_embeddings.values())).shape[0]
+            if self.t_embedding_map:
+                first_key = next(iter(self.t_embedding_map["datasets"]))
+                self.t_embed_dim = len(
+                    self.t_embedding_map["datasets"][first_key]["0"]["description_embedding"])
 
-                self.sequences_embeddings_loaded = True
+            self.embeddings_loaded = True
 
-            except Exception as e:
-                print(f"Error loading embeddings: {e}")
-                self.sequences_embeddings = None
-
-        else:
+        except Exception as e:
             print(
-                f"INFO: No embeddings found at {sequences_embeddings_path}. Using zeros.")
+                f"INFO: This instance of dataset '{dataset_name}', split '{split_name}' will be constructed without references to motion pattern embeddings")
+            self.embeddings_loaded = False
 
         all_files = os.listdir(self.data_dir)
-        all_files = sorted([os.path.join(self.data_dir, _path)
-                           for _path in all_files])
+        all_files = [os.path.join(self.data_dir, _path) for _path in all_files]
 
         # Lists to store all processed data
         num_peds_in_seq = []
@@ -297,14 +219,13 @@ class TrajectoryDataset(Dataset):
         loss_mask_list = []
         non_linear_ped = []
 
-        sequences_name_list = []
+        self.ped_global_id_map = []
+        global_valid_pedestrians_counter = 0
 
         # Iterate over each data file (e.g., 'eth.txt', 'hotel.txt')
         for path in all_files:
             # Load the whole file into a numpy array
             data = read_file(path, delim)
-
-            scene_name = os.path.splitext(os.path.basename(path))[0]
 
             # Get all unique frame IDs, sorted
             frames = np.unique(data[:, 0]).tolist()
@@ -389,8 +310,9 @@ class TrajectoryDataset(Dataset):
                     seq_list.append(curr_seq[:num_peds_considered])
                     seq_list_rel.append(curr_seq_rel[:num_peds_considered])
 
-                    sequences_name_list.extend(
-                        [scene_name] * num_peds_considered)
+                    self.ped_global_id_map.extend([ped_idx for ped_idx in range(
+                        global_valid_pedestrians_counter, global_valid_pedestrians_counter+num_peds_considered, 1)])
+                    global_valid_pedestrians_counter += num_peds_considered
 
         # After processing all files, store the total number of valid scenes
         self.num_seq = len(seq_list)
@@ -401,8 +323,6 @@ class TrajectoryDataset(Dataset):
         seq_list_rel = np.concatenate(seq_list_rel, axis=0)
         loss_mask_list = np.concatenate(loss_mask_list, axis=0)
         non_linear_ped = np.asarray(non_linear_ped)
-
-        self.sequences_name_list = sequences_name_list
 
         # Create global IDs for all pedestrians in this dataset:
         total_num_peds_in_dataset = seq_list.shape[0]
@@ -424,6 +344,26 @@ class TrajectoryDataset(Dataset):
         self.loss_mask = torch.from_numpy(loss_mask_list).type(torch.float)
         self.non_linear_ped = torch.from_numpy(
             non_linear_ped).type(torch.float)
+
+        self.t_embeddings = torch.zeros(
+            total_num_peds_in_dataset, self.t_embed_dim, dtype=torch.float)
+
+        if self.embeddings_loaded:
+            for ped_idx in self.ped_global_id_map:
+
+                if str(ped_idx) in self.t_embedding_map["datasets"][dataset_name]:
+                    try:
+                        self.t_embeddings[ped_idx] = torch.tensor(
+                            self.t_embedding_map["datasets"][dataset_name][str(
+                                ped_idx)]["description_embedding"], dtype=torch.float
+                        )
+                    except KeyError:
+                        self.t_embeddings[ped_idx] = torch.tensor(
+                            [0] * self.t_embed_dim, dtype=torch.float
+                        )
+                else:
+                    print(
+                        f"pedestre de ID {ped_idx} nao esta presente no self.t_embedding_map")
 
         # Create a "lookup table" (self.seq_start_end)
         # This list stores the (start, end) row indices in the master tensors
@@ -453,26 +393,6 @@ class TrajectoryDataset(Dataset):
         # Use the lookup table to find the slice for this scene
         start, end = self.seq_start_end[index]
 
-        scene_embedding = None
-        current_sequence_name = self.sequences_name_list[start]
-        if self.sequences_embeddings_loaded and current_sequence_name in self.sequences_embeddings:
-            scene_embedding = self.sequences_embeddings[current_sequence_name]
-
-        else:
-            if index == 0:
-                print(
-                    f"[DATASET WARNING] Embedding não encontrada para: {current_sequence_name}")
-
-        if scene_embedding is None:
-            dim = self.sequences_embeddings_dimension if self.sequences_embeddings_dimension > 0 else 768
-            scene_embedding = torch.zeros(dim)
-
-        if scene_embedding.device != torch.device('cpu'):
-            scene_embedding = scene_embedding.cpu()
-
-        num_peds = end - start
-        scene_embedding = scene_embedding.unsqueeze(0).repeat(num_peds, 1)
-
         # Slice all master tensors to get the data for this scene
         out = [
             self.obs_traj[start:end, :],
@@ -481,8 +401,6 @@ class TrajectoryDataset(Dataset):
             self.pred_traj_rel[start:end, :],
             self.non_linear_ped[start:end],
             self.loss_mask[start:end, :],
-            scene_embedding,
-            [current_sequence_name] * num_peds
+            self.t_embeddings[start:end],
         ]
-
         return out

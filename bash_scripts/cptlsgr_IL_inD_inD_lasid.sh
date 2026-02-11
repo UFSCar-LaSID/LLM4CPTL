@@ -6,9 +6,9 @@ python_script=$user_root_folder/LLM4CPTL/cptl_with_social_gr/main.py
 python_script_2=$user_root_folder/LLM4CPTL/cptl_with_social_gr/evaluate_batch_learning.py
 dataset_name_train=inD
 dataset_name_test=inD
-batch_size=1024
+batch_size=32
 replay_batch_size=$batch_size
-iters=200
+iters=400
 
 # Conda-specific commands:
 source ~/miniconda3/etc/profile.d/conda.sh
@@ -32,7 +32,6 @@ nohup python $python_script \
 	--iters=$iters \
 	--time \
 	--metrics \
-	--pdf \
 	> ../logs/tmp_out.log \
 	2> ../logs/tmp_err.log &
 

@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 ###################################
-## Imports and packages
+# Imports and packages
 ###################################
 import argparse
 import joblib
@@ -11,7 +11,7 @@ import os
 import sys
 import torch
 import json
-import gc # For GPU memory cleanup
+import gc
 from pathlib import Path
 from sklearn.mixture import GaussianMixture
 from tqdm import tqdm
@@ -29,9 +29,9 @@ parent_dir = current_dir.parent.resolve()
 if str(parent_dir) not in sys.path:
     print(f"Adding {parent_dir} to sys.path")
     sys.path.insert(0, str(parent_dir))
-    
+
 try:
-    from cptl_with_social_gr.data.trajectories import TrajectoryDataset, seq_collate, read_file, poly_fit
+    from cptl_with_social_gr.data.trajectories_trajectoryEmbeddings import TrajectoryDataset, seq_collate, read_file, poly_fit
     from cptl_with_social_gr.helper import utils
     from cptl_with_social_gr.data.loader import data_loader, data_dset
     print("Successfully imported CPTL-SGR modules.")
@@ -40,7 +40,7 @@ except ModuleNotFoundError as e:
     exit(1)
 
 ###################################
-## Experiment arguments
+# Experiment arguments
 ###################################
 parser = argparse.ArgumentParser(
     description="Motion cues extraction and Gaussian Mixture clusters generation."
@@ -270,30 +270,26 @@ parser.add_argument(
 )
 
 ###################################
-## Classes
+# Classes
 ###################################
+
+
 class MotionPattern(str, Enum):
     LINEAR = "Linear"
     STILL = "Standing Still"
     CURVED = "Curved"
     SHARP_TURNS = "Sharp Turns"
     OTHER = "Other"
+
 
 class MotionAnalysis(BaseModel):
     description: str
     motion_pattern: MotionPattern
-    
-###################################
-## Functions
-###################################
-from enum import Enum
 
-class MotionPattern(str, Enum):
-    LINEAR = "Linear"
-    STILL = "Standing Still"
-    CURVED = "Curved"
-    SHARP_TURNS = "Sharp Turns"
-    OTHER = "Other"
+###################################
+# Functions
+###################################
+
 
 def formatar_valores_enum(enum_class):
     """
@@ -301,16 +297,17 @@ def formatar_valores_enum(enum_class):
     adicionando um ponto final a cada item.
     """
     lista_formatada = []
-    
+
     # Itera sobre todos os membros (membros) da classe Enum
     for membro in enum_class:
         # Acessa o valor (value) de cada membro (e.g., "Linear")
         valor = membro.value
-        
+
         # Adiciona o ponto final e insere na lista
         lista_formatada.append(valor + "\"}")
-        
+
     return lista_formatada
+
 
 def to_serializable_embedding(embedding):
     if isinstance(embedding, torch.Tensor):
@@ -321,7 +318,8 @@ def to_serializable_embedding(embedding):
         return embedding
     else:
         return [float(x) for x in embedding]
-    
+
+
 def format_trajectories_batch(obs_traj_batch: torch.Tensor) -> list[str]:
     """
     Formats a batch of absolute pedestrian trajectories into a list of user prompt strings
@@ -353,23 +351,24 @@ def format_trajectories_batch(obs_traj_batch: torch.Tensor) -> list[str]:
     obs_traj_batch_cpu = obs_traj_batch.cpu()
 
     for ped_idx in range(total_peds_in_batch):
-        
+
         # 1. Slice the trajectory for the current pedestrian
         #    This is a slicing operation (not a permutation)
         #    Shape: [obs_len, 2]
         ped_traj_tensor = obs_traj_batch_cpu[:, ped_idx, :]
-        
+
         # 2. Convert the tensor to a rounded list of coordinate strings
         traj_list = ped_traj_tensor.numpy().tolist()
         point_strings = [f"({x:.5f}, {y:.5f})" for x, y in traj_list]
         trajectory_description = ", ".join(point_strings)
-        
+
         # 3. Format the final user prompt message
         user_message_content = f"Coordinates: {trajectory_description}.\nQuestion: find the motion pattern in the pedestrian trajectory considering the given coordinates."
-        
+
         prompts_list.append(user_message_content)
 
     return prompts_list
+
 
 def preprocess_future_traj_for_gmm_batch(pred_traj_gt_batch: np.ndarray, expected_len: int) -> np.ndarray:
     """
@@ -390,7 +389,7 @@ def preprocess_future_traj_for_gmm_batch(pred_traj_gt_batch: np.ndarray, expecte
         np.ndarray: Processed and flattened batch of trajectories.
             Shape: [batch_size, expected_len * 2], ready for GMM clustering.
     """
-    
+
     # Get sequence length (S) and batch size (B) from input
     seq_len, total_peds_in_batch, _ = pred_traj_gt_batch.shape
 
@@ -401,33 +400,37 @@ def preprocess_future_traj_for_gmm_batch(pred_traj_gt_batch: np.ndarray, expecte
     traj_translated = pred_traj_gt_batch - start_points[np.newaxis, :, :]
 
     # 2. Compute the angle to rotate each trajectory so the second point aligns with x-axis
-    second_points = traj_translated[1, :, :] # Shape (B, 2)
+    second_points = traj_translated[1, :, :]  # Shape (B, 2)
     thetas = np.arctan2(second_points[:, 1], second_points[:, 0])
-    
+
     c = np.cos(-thetas)
     s = np.sin(-thetas)
-    
+
     # Build 2x2 rotation matrices for each pedestrian
-    row1 = np.stack([c, -s], axis=1) # Shape (B, 2)
-    row2 = np.stack([s, c], axis=1) # Shape (B, 2)
-    rotation_matrices = np.stack([row1, row2], axis=1) # Shape (B, 2, 2)
+    row1 = np.stack([c, -s], axis=1)  # Shape (B, 2)
+    row2 = np.stack([s, c], axis=1)  # Shape (B, 2)
+    rotation_matrices = np.stack([row1, row2], axis=1)  # Shape (B, 2, 2)
 
     # Apply rotation to all trajectories using Einstein summation
     # 'sbk,bkj->sbj' means: for each sequence step s and batch b, multiply
     # dimension k=2 with k=2 to result in j=2
-    traj_rotated = np.einsum('sbk,bkj->sbj', traj_translated, rotation_matrices)
+    traj_rotated = np.einsum(
+        'sbk,bkj->sbj', traj_translated, rotation_matrices)
 
     # Handle cases where the second point is at the origin (0,0)
-    norms = np.linalg.norm(second_points, axis=1) # Shape (B,)
-    mask_broadcastable = (norms > 1e-4)[np.newaxis, :, np.newaxis] # Shape (1, B, 1)
-    
+    norms = np.linalg.norm(second_points, axis=1)  # Shape (B,)
+    mask_broadcastable = (
+        norms > 1e-4)[np.newaxis, :, np.newaxis]  # Shape (1, B, 1)
+
     traj_final = np.where(mask_broadcastable, traj_rotated, traj_translated)
 
     # 3. Flatten trajectories for GMM input
     #    Swap axes to shape (B, S, 2) then reshape to (B, S*2)
-    flattened_batch = traj_final.swapaxes(0, 1).reshape(total_peds_in_batch, seq_len * 2)
-    
+    flattened_batch = traj_final.swapaxes(
+        0, 1).reshape(total_peds_in_batch, seq_len * 2)
+
     return flattened_batch
+
 
 def main(args: argparse.Namespace):
     """
@@ -451,15 +454,15 @@ def main(args: argparse.Namespace):
         torch.cuda.set_device(0)
     else:
         device = "cpu"
-        
+
     print(f"Using device: {device}")
-    
+
     # --- 1. Initialize structured outputs and sampling parameters ---
     json_schema = MotionAnalysis.model_json_schema()
     structured_params = StructuredOutputsParams(json=json_schema)
-    
+
     stop_strings = formatar_valores_enum(MotionPattern)
-    
+
     sampling_params = SamplingParams(
         temperature=args.temperature,
         top_p=args.top_p,
@@ -471,7 +474,7 @@ def main(args: argparse.Namespace):
         stop=stop_strings,
         include_stop_str_in_output=True
     )
-    
+
     pooling_params = PoolingParams(
         dimensions=args.dimensions,
         normalize=args.normalize
@@ -479,7 +482,7 @@ def main(args: argparse.Namespace):
 
     if args.block_pulling_models_from_online_hub:
         from huggingface_hub import snapshot_download
-        
+
         model_generative_path = snapshot_download(
             repo_id=args.model_generative_name,
             repo_type="model",
@@ -493,7 +496,7 @@ def main(args: argparse.Namespace):
             local_files_only=True,
             local_dir=args.local_model_embedding_path
         )
-    
+
     # --- 2. Initialize the LLM model ---
     llm_generative = LLM(
         model=model_generative_path if args.block_pulling_models_from_online_hub else args.model_generative_name,
@@ -505,10 +508,10 @@ def main(args: argparse.Namespace):
         runner="generate",
         enable_sleep_mode=True,
         max_num_seqs=args.max_num_seqs
-        #enforce_eager=True
-        #enable_prefix_caching=False
+        # enforce_eager=True
+        # enable_prefix_caching=False
     )
-    
+
     llm_embedding = LLM(
         model=model_embedding_path if args.block_pulling_models_from_online_hub else args.model_embedding_name,
         seed=args.seed,
@@ -517,79 +520,86 @@ def main(args: argparse.Namespace):
         enable_prompt_embeds=True,
         max_model_len=args.max_model_len,
         runner="pooling",
-        #enforce_eager=True,
+        # enforce_eager=True,
         enable_sleep_mode=True,
         hf_overrides={"is_matryoshka": True},
         max_num_seqs=args.max_num_seqs
-        #enable_prefix_caching=False
+        # enable_prefix_caching=False
     )
 
     llm_embedding.sleep(level=1)
-    
+
     print(f"Loading Tokenizer: {args.tokenizer_name}")
     if args.block_pulling_models_from_online_hub:
-        tokenizer = AutoTokenizer.from_pretrained(model_generative_path, local_files_only=True)
+        tokenizer = AutoTokenizer.from_pretrained(
+            model_generative_path, local_files_only=True)
     else:
         tokenizer = AutoTokenizer.from_pretrained(args.model_generative_name)
-        
+
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
-    
+
     # --- 3. Define system prompt ---
     system_prompt = {
         "role": "system",
         "content": "You are an expert who can analyze and identify different types of motion patterns in the (x, y) trajectories coordinates of pedestrians' movement. Based on the series of two-dimensional coordinates provided, you must generate a JSON object with a description and a motion_pattern classification of the trajectory."
     }
-    
+
     # --- 4. Configure output paths ---
     dataset_names = args.datasets
     output_dir = Path(args.output_dir)
     os.makedirs(output_dir, exist_ok=True)
-    
-    M_text_save_path = os.path.join(output_dir, f"llm_motion_cues_{args.model_generative_name.lower().split('/')[1]}_{args.model_embedding_name.lower().split('/')[1]}_{'_'.join(args.datasets) if isinstance(args.datasets, list) else args.datasets}_{args.batch_size}_{args.temperature}_{args.max_tokens}_{args.quantization}_{args.gmm_n_components}.json")
-    gmm_save_path = os.path.join(output_dir, f"gmm_model_{'_'.join(args.datasets) if isinstance(args.datasets, list) else args.datasets}.pkl")
-    
+
+    M_text_save_path = os.path.join(
+        output_dir, f"llm_motion_cues_{args.model_generative_name.lower().split('/')[1]}_{args.model_embedding_name.lower().split('/')[1]}_{'_'.join(args.datasets) if isinstance(args.datasets, list) else args.datasets}_{args.batch_size}_{args.temperature}_{args.max_tokens}_{args.quantization}_{args.gmm_n_components}.json")
+    gmm_save_path = os.path.join(
+        output_dir, f"gmm_model_{'_'.join(args.datasets) if isinstance(args.datasets, list) else args.datasets}.pkl")
+
     print(f"'M' (text classifications) will be saved to: {M_text_save_path}")
-   
+
     all_results = {
         "batch_size": args.batch_size,
         "datasets": {}
     }
-    
+
     all_M_texts = {}
-    all_Zc_ids = {} 
+    all_Zc_ids = {}
     all_future_trajs_processed_for_gmm = []
-    
+
     # Few-shot examples for LLM prompting
     few_shot_examples = [
-        {"role": "system", "content": "You are an expert who can analyze and identify different types of motion patterns in the (x, y) trajectories coordinates of pedestrians' movement. Based on the series of two-dimensional coordinates provided, you must generate a JSON object with a description and a motion_pattern classification of the trajectory."},
-        {"role": "user", "content": "Coordinates: (0.00, 0.00), (0.10, 0.10), (0.20, 0.20), (0.30, 0.30)\nQuestion: find the motion pattern in the pedestrian trajectory considering the given coordinates."},
+        {"role": "system",
+            "content": "You are an expert who can analyze and identify different types of motion patterns in the (x, y) trajectories coordinates of pedestrians' movement. Based on the series of two-dimensional coordinates provided, you must generate a JSON object with a description and a motion_pattern classification of the trajectory."},
+        {"role": "user",
+            "content": "Coordinates: (0.00, 0.00), (0.10, 0.10), (0.20, 0.20), (0.30, 0.30)\nQuestion: find the motion pattern in the pedestrian trajectory considering the given coordinates."},
         {"role": "assistant", "content": '{ "description": "The pedestrian follows a movement in which the x and y coordinates increase linearly by 10 units per step.", "motion_pattern": "Linear Motion" }'},
-        {"role": "user", "content": "Coordinates: (0.00, 0.00), (0.00, 0.00), (0.00, 0.00), (0.00, 0.00)\nQuestion: find the motion pattern in the pedestrian trajectory considering the given coordinates."},
+        {"role": "user",
+            "content": "Coordinates: (0.00, 0.00), (0.00, 0.00), (0.00, 0.00), (0.00, 0.00)\nQuestion: find the motion pattern in the pedestrian trajectory considering the given coordinates."},
         {"role": "assistant", "content": '{ "description": "None of the pedestrian\'s coordinates increased during the observed period. Therefore, the pedestrian did not move at all.", "motion_pattern": "Standing Still" }'},
     ]
 
     # --- 5. Main Processing Loop ---
     print(f"\n--- STAGE 1: Generating 'M' (LLM Text) & Collecting 'Y_i' (GMM data) ---")
-    
+
     for dset_name in dataset_names:
         print(f"\nProcessing dataset: {dset_name}")
-        
+
         data_file_path = utils.get_dset_path(dset_name, 'train')
         dset = data_dset(args, data_file_path)
-        dset_loader = data_loader(args, dset, args.batch_size, pin_memory=False)
-        
+        dset_loader = data_loader(
+            args, dset, args.batch_size, pin_memory=False)
+
         num_batches = len(dset_loader)
         if num_batches == 0:
             print(f"Skipping dataset {dset_name}, it has zero batches.")
             continue
-        
+
         print(f"Found {len(dset)} scenes, resulting in {num_batches} batches.")
 
         all_results["datasets"][dset_name] = {}
-        
+
         for batch_idx, batch in enumerate(tqdm(dset_loader, desc=f"Processing {dset_name} Batches")):
-            
+
             # Move tensors to CPU for processing
             try:
                 batch = [tensor.to("cpu") for tensor in batch]
@@ -615,7 +625,8 @@ def main(args: argparse.Namespace):
             prompts_batch = format_trajectories_batch(obs_traj)
 
             prompts_batch_with_system_message = [
-                [system_prompt, few_shot_examples[0], few_shot_examples[1], few_shot_examples[2], few_shot_examples[3], {"role": "user", "content": user_promp_content}] if args.use_few_shot else [system_prompt, {"role": "user", "content": user_promp_content}]
+                [system_prompt, few_shot_examples[0], few_shot_examples[1], few_shot_examples[2], few_shot_examples[3], {
+                    "role": "user", "content": user_promp_content}] if args.use_few_shot else [system_prompt, {"role": "user", "content": user_promp_content}]
                 for user_promp_content in prompts_batch
             ]
 
@@ -630,13 +641,14 @@ def main(args: argparse.Namespace):
                                     f.write(str(prompt) + "\n")
                                 else:
                                     # Opcional: Registra se houver dados ruins
-                                    print(f"Aviso prompts_batch_with_system_message: Item ignorado (nao eh string): {prompt}")
+                                    print(
+                                        f"Aviso prompts_batch_with_system_message: Item ignorado (nao eh string): {prompt}")
 
                     print(f"Sucesso! Prompts salvos em {output_filename}")
 
                 except Exception as e:
                     print(f"Erro ao salvar arquivo: {e}")
-            
+
             # Apply chat template for tokenizer
             prompts_batch_with_system_message_applied_template = tokenizer.apply_chat_template(
                 prompts_batch_with_system_message,
@@ -656,7 +668,8 @@ def main(args: argparse.Namespace):
                                 f.write(prompt + "\n")
                             else:
                                 # Opcional: Registra se houver dados ruins
-                                print(f"Aviso prompts_batch_with_system_message_applied_template: Item ignorado (nao eh string): {prompt}")
+                                print(
+                                    f"Aviso prompts_batch_with_system_message_applied_template: Item ignorado (nao eh string): {prompt}")
 
                     print(f"Sucesso! Prompts salvos em {output_filename}")
 
@@ -664,85 +677,95 @@ def main(args: argparse.Namespace):
                     print(f"Erro ao salvar arquivo: {e}")
 
             # Generate LLM motion cues and extract raw texts:
-            output_generate = llm_generative.generate(prompts_batch_with_system_message_applied_template, sampling_params)
-            llm_motion_cues_descriptions_batch = [out.outputs[0].text.strip() for out in output_generate]
-            
+            output_generate = llm_generative.generate(
+                prompts_batch_with_system_message_applied_template, sampling_params)
+            llm_motion_cues_descriptions_batch = [
+                out.outputs[0].text.strip() for out in output_generate]
+
             # Put the generative LLM to sleep and wake up the pooling LLM (for embeddings)
             llm_generative.sleep(level=1)
             llm_embedding.wake_up()
-            
-            # Generate the embeddings for all raw descriptions in batch:           
-            output_embed = llm_embedding.embed(llm_motion_cues_descriptions_batch, pooling_params=pooling_params)
-            llm_motion_cues_embeddings_batch = [out.outputs.embedding for out in output_embed]
+
+            # Generate the embeddings for all raw descriptions in batch:
+            output_embed = llm_embedding.embed(
+                llm_motion_cues_descriptions_batch, pooling_params=pooling_params)
+            llm_motion_cues_embeddings_batch = [
+                out.outputs.embedding for out in output_embed]
             llm_embedding.sleep(level=1)
-            
-            # Tokenize all raw descriptions in batch:       
-            #llm_motion_cues_tokens_batch = tokenizer(
-                #llm_motion_cues_descriptions_batch,
-                #add_special_tokens=False,
-                #return_tensors="pt",
-                #padding=True,
-                #truncation=True
-            #)
-            
+
+            # Tokenize all raw descriptions in batch:
+            # llm_motion_cues_tokens_batch = tokenizer(
+            # llm_motion_cues_descriptions_batch,
+            # add_special_tokens=False,
+            # return_tensors="pt",
+            # padding=True,
+            # truncation=True
+            # )
+
             # Parse LLM outputs into JSON
             llm_motion_cues_descriptions_batch_parsed = []
             for initial_description, initial_embedding, prompt in zip(llm_motion_cues_descriptions_batch, llm_motion_cues_embeddings_batch, prompts_batch_with_system_message_applied_template):
                 current_description = initial_description
                 current_embedding = initial_embedding
                 number_of_tries = 1
-                
+
                 while number_of_tries <= args.max_number_of_sampling_retries:
                     try:
                         json_object = json.loads(current_description)
-                        json_object["description_embedding"] = to_serializable_embedding(current_embedding)
-                        #json_object["description_tokenized"] = tokens
-                        
-                        llm_motion_cues_descriptions_batch_parsed.append(json_object)
+                        json_object["description_embedding"] = to_serializable_embedding(
+                            current_embedding)
+                        # json_object["description_tokenized"] = tokens
+
+                        llm_motion_cues_descriptions_batch_parsed.append(
+                            json_object)
                         break
-                        
+
                     except json.JSONDecodeError:
                         if number_of_tries == args.max_number_of_sampling_retries:
-                            print(f"Erro JSON persistente para o prompt: {prompt}. Max. tentativas alcancado.")
+                            print(
+                                f"Erro JSON persistente para o prompt: {prompt}. Max. tentativas alcancado.")
                             llm_motion_cues_descriptions_batch_parsed.append({
                                 "error": "JSONDecodeError",
                                 "raw_output": current_description
                             })
-                            
+
                             break
-                        
+
                         else:
                             number_of_tries += 1
-                            print(f"Erro JSON na tentativa {number_of_tries-1}. Tentando novamente...")
-                            
+                            print(
+                                f"Erro JSON na tentativa {number_of_tries-1}. Tentando novamente...")
+
                             llm_generative.wake_up()
-                            current_description = llm_generative.generate(prompt, sampling_params)[0].outputs[0].text.strip()
+                            current_description = llm_generative.generate(prompt, sampling_params)[
+                                0].outputs[0].text.strip()
                             llm_generative.sleep(level=1)
-                            
+
                             llm_embedding.wake_up()
-                            current_embedding = llm_embedding.embed(current_description, pooling_params=pooling_params)[0].outputs.embedding
+                            current_embedding = llm_embedding.embed(
+                                current_description, pooling_params=pooling_params)[0].outputs.embedding
                             llm_embedding.sleep(level=1)
-                    
+
             for g_idx_tensor, llm_result in zip(global_indices, llm_motion_cues_descriptions_batch_parsed):
-                g_idx_key = str(g_idx_tensor.item()) 
+                g_idx_key = str(g_idx_tensor.item())
                 all_results["datasets"][dset_name][g_idx_key] = llm_result
-            
+
             pred_traj_np_batch = pred_traj.cpu().numpy()
-            
+
             # Preprocess future trajectories for GMM
             processed_batch = preprocess_future_traj_for_gmm_batch(
                 pred_traj_np_batch,
                 args.pred_len
             )
-            
+
             all_future_trajs_processed_for_gmm.extend(processed_batch)
-            
+
             llm_embedding.sleep(level=1)
             llm_generative.wake_up()
 
             # Clear memory
             del obs_traj, pred_traj, obs_traj_rel, pred_traj_rel, non_linear_ped, loss_mask, seq_start_end, prompts_batch, prompts_batch_with_system_message, prompts_batch_with_system_message_applied_template, llm_motion_cues_descriptions_batch
-    
+
     gc.collect()
     if device == 'cuda':
         torch.cuda.empty_cache()
@@ -758,47 +781,50 @@ def main(args: argparse.Namespace):
 
     # --- 7. Train Gaussian Mixture Model (GMM) ---
     print("\n--- STAGE 2: Training GMM for 'Zc' ---")
-    
+
     if not all_future_trajs_processed_for_gmm:
         print("Error: There are no future trajectories, GMM will not be trained.")
         return
 
-    gmm_train_data = np.stack(all_future_trajs_processed_for_gmm).astype(np.float64)
-    
+    gmm_train_data = np.stack(
+        all_future_trajs_processed_for_gmm).astype(np.float64)
+
     gmm = GaussianMixture(
-        n_components=args.gmm_n_components, 
-        covariance_type='full', 
-        random_state=args.seed, 
-        verbose=1, 
-        max_iter=args.gmm_max_iter, 
+        n_components=args.gmm_n_components,
+        covariance_type='full',
+        random_state=args.seed,
+        verbose=1,
+        max_iter=args.gmm_max_iter,
         n_init=args.gmm_n_init
     )
-    
+
     try:
         gmm.fit(gmm_train_data)
         print(f"GMM training completed. Converged: {gmm.converged_}")
         joblib.dump(gmm, gmm_save_path)
         print(f"GMM model saved to {gmm_save_path}")
-        
+
     except Exception as e:
         print(f"Error during GMM fitting: {e}")
         return
 
     print("\n--- STAGE 3: Salvando Zc_id (IDs de Cluster) ---")
     all_Zc_ids_array = gmm.predict(gmm_train_data)
-    
+
     for i in range(len(all_Zc_ids_array)):
         g_idx = i
         zc_id = all_Zc_ids_array[i]
         all_Zc_ids[g_idx] = int(zc_id)
-        
-    zc_id_save_path = os.path.join(output_dir, f"clusters_id_map_{'_'.join(args.datasets) if isinstance(args.datasets, list) else args.datasets}.json")
+
+    zc_id_save_path = os.path.join(
+        output_dir, f"clusters_id_map_{'_'.join(args.datasets) if isinstance(args.datasets, list) else args.datasets}.json")
     print(f"Salvando {len(all_Zc_ids)} IDs de cluster em {zc_id_save_path}...")
     with open(zc_id_save_path, 'w') as f:
         json.dump(all_Zc_ids, f, indent=2)
 
+
 ###################################
-## Main program
+# Main program
 ###################################
 if __name__ == "__main__":
     args = parser.parse_args()

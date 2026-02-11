@@ -97,14 +97,6 @@ def _solver_val_loss_cb(log, visdom, model=None, tasks=None, iters_per_task=None
                 weight_new_task = 1
                 plot_data = [weight_new_task*loss_dict['loss_val']]
                 names = ['pred']
-                # if replay:
-                #     plot_data += [(1 - weight_new_task) * s.mean(loss_dict['pred_traj_r'])]
-                #     names += ['pred - r']
-                #     # if model.replay_targets=="hard":
-                #     #     plot_data += [(1-weight_new_task)*s.mean(loss_dict['pred_traj_r'])]
-                #     #     names += ['pred - r']
-                #     # elif model.replay_targets=="soft":
-                #     #     pass  # todo add distillation functions
             visual_visdom.visualize_scalars(
                 scalars=plot_data, names=names, iteration=iteration,
                 title="Val loss (CL_{})".format(visdom["graph"]), env=visdom["env"], ylable="val loss"
@@ -113,7 +105,7 @@ def _solver_val_loss_cb(log, visdom, model=None, tasks=None, iters_per_task=None
     # Return the callback-function
     return cb
 
-def _solver_loss_cb(log, visdom, model=None, tasks=None, iters_per_task=None, replay=False, progress_bar=True):
+def _solver_loss_cb(log, visdom, tasks=None, iters_per_task=None, replay=False, progress_bar=True):
     '''Initiates function for keeping track of, and reporting on, the progress of the solver's training.'''
 
     def cb(bar, iter, loss_dict, task=1):
@@ -142,11 +134,6 @@ def _solver_loss_cb(log, visdom, model=None, tasks=None, iters_per_task=None, re
                 if replay:
                     plot_data += [(1 - weight_new_task) * s.mean(loss_dict['pred_traj_r'])]
                     names += ['pred - r']
-                    # if model.replay_targets=="hard":
-                    #     plot_data += [(1-weight_new_task)*s.mean(loss_dict['pred_traj_r'])]
-                    #     names += ['pred - r']
-                    # elif model.replay_targets=="soft":
-                    #     pass  # todo add distillation functions
             visual_visdom.visualize_scalars(
                 scalars=plot_data, names=names, iteration=iteration,
                 title="Train loss (CL_{})".format(visdom["graph"]), env=visdom["env"], ylable="training loss"
@@ -155,7 +142,7 @@ def _solver_loss_cb(log, visdom, model=None, tasks=None, iters_per_task=None, re
     # Return the callback-function
     return cb
 
-def _VAE_loss_cb(log, visdom, model, tasks=None, iters_per_task=None, replay=False, progress_bar=True):
+def _VAE_loss_cb(log, visdom, tasks=None, iters_per_task=None, replay=False, progress_bar=True):
     '''Initiates functions for keeping track of, and reporting on, the progress of the generator's training.'''
 
     def cb(bar, iter, loss_dict, task=1):
@@ -166,11 +153,26 @@ def _VAE_loss_cb(log, visdom, model, tasks=None, iters_per_task=None, replay=Fal
         # progress-bar
         if progress_bar and bar is not None:
             task_stm = "" if (tasks is None) else "Task: {}/{} |".format(task, tasks)
-            bar.set_description(
-                ' <VAE>       | {t_stm} training loss: {loss:.3} | training reconL: {reconL:.3} |'.format(
-                    t_stm=task_stm, loss=s.mean(loss_dict['loss_total']), reconL=s.mean(loss_dict['reconL'])
-                )
+            
+            desc = ' <VAE>       | {t_stm} Total: {loss:.4f} | Recon_current: {reconL:.4f}'.format(
+                t_stm=task_stm,
+                loss=s.mean(loss_dict['loss_total']),
+                reconL=s.mean(loss_dict['reconL'])
             )
+            
+            if 'variatL' in loss_dict:
+                desc += ' | KL_current: {:.4f}'.format(s.mean(loss_dict['variatL']))
+            
+            if task > 1 and replay:
+                if 'reconL_r' in loss_dict:
+                    val_r = s.mean(loss_dict['reconL_r'])
+                    desc += ' | Recon_replay: {:.4f}'.format(val_r)
+                
+                if 'variatL_r' in loss_dict:
+                    desc += ' | KL_replay: {:.4f}'.format(
+                        s.mean(loss_dict['variatL_r']))
+            
+            bar.set_description(desc)
             bar.update(1)
 
         # log the loss of the solver (to visdom)

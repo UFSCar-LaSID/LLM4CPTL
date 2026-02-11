@@ -1,7 +1,11 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+###################################
+# Imports and packages
+###################################
+
 import logging
-import os
-import math
-from IPython import embed
 import numpy as np
 
 import torch
@@ -16,6 +20,7 @@ def seq_collate(data):
         pred_seq_list,
         obs_seq_rel_list,
         pred_seq_rel_list,
+        t_embedding_list,
     ) = zip(*data)
 
     _len = [len(seq) for seq in obs_seq_list]
@@ -30,12 +35,14 @@ def seq_collate(data):
     obs_traj_rel = torch.cat(obs_seq_rel_list, dim=0).permute(2, 0, 1)
     pred_traj_rel = torch.cat(pred_seq_rel_list, dim=0).permute(2, 0, 1)
     seq_start_end = torch.LongTensor(seq_start_end)
+    t_embeddings = torch.cat(t_embedding_list, dim=0)
     out = [
         obs_traj,
         pred_traj,
         obs_traj_rel,
         pred_traj_rel,
         seq_start_end,
+        t_embeddings,
     ]
 
     return tuple(out)     # tuple(out)
@@ -50,7 +57,8 @@ class TrajectoryDataset(Dataset):
         pred_traj,
         obs_traj_rel,
         pred_traj_rel,
-        seq_start_end
+        seq_start_end,
+        t_embeddings,
     ):
         """
         Args:
@@ -72,6 +80,7 @@ class TrajectoryDataset(Dataset):
         self.obs_traj_rel = obs_traj_rel.permute(1, 2, 0)
         self.pred_traj_rel = pred_traj_rel.permute(1, 2, 0)
         self.seq_start_end = seq_start_end
+        self.t_embeddings = t_embeddings
         self.num_seq = obs_traj.size(0)
 
     def __len__(self):
@@ -84,5 +93,6 @@ class TrajectoryDataset(Dataset):
             self.pred_traj[start:end, :],
             self.obs_traj_rel[start:end, :],
             self.pred_traj_rel[start:end, :],
+            self.t_embeddings[start:end, :]
         ]
         return out

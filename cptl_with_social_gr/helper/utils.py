@@ -1,30 +1,32 @@
-import numpy as np
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+###################################
+# Imports and packages
+###################################
+import math
 import pickle
 import os
+import re
 import logging
 import torch
-from torch import nn
-from torch.nn import functional as F
-import copy
 import shutil
 
+from data.trajectories import SceneBatch
 
+###################################
+# Functions
+###################################
 # Data-handling functions
 def get_data_loader():
     pass
 
 # Get dataset path
-
-
-def get_dset_path(dset_name, dset_type):
+def get_dset_path(dset_name: str, dset_type: str):
     _dir = os.path.dirname(__file__)
-    # _dir = _dir.split("/")[:-1]
-    # _dir = "/".join(_dir)
     return os.path.join(_dir, '../datasets', dset_name, dset_type)
 
 # relative to absolute
-
-
 def relative_to_abs(rel_traj, start_pos):
     """
     Inputs:
@@ -70,7 +72,7 @@ def count_parameters(model, verbose=True):
     return total_params, learnable_params, fixed_params
 
 
-def print_model_info(model, title="MODEL"):
+def print_model_info(model, title: str = "MODEL"):
     '''Print information on [model] onto the screen.'''
     print("\n" + 40*"-" + title + 40*"-")
     print(model)
@@ -80,7 +82,7 @@ def print_model_info(model, title="MODEL"):
 
 
 # Calculate l2_loss
-def l2_loss(pred_traj, pred_traj_gt, random=0, mode="average"):
+def l2_loss(pred_traj, pred_traj_gt, mode: str = "average"):
     """
     Input:
     - pred_traj: Tensor of shape (seq_len, batch, 2). Predicted trajectory.
@@ -105,7 +107,7 @@ def l2_loss(pred_traj, pred_traj_gt, random=0, mode="average"):
 # Calculate ADE metric
 
 
-def displacement_error(pred_traj, pred_traj_gt, consider_ped=None, mode="sum"):
+def displacement_error(pred_traj, pred_traj_gt, consider_ped=None, mode: str = "sum"):
     '''
     Input:
     :param pred_traj: Tensor of shape (seq_len, batch, 2). Predicted trajectory. [12, person_num, 2]
@@ -263,47 +265,44 @@ def validate_cl(args, model, val_loader, epoch, writer=None):
     ade = AverageMeter("ADE", ":.6f")
     fde = AverageMeter("FDE", ":.6f")
     losses_val = AverageMeter("Loss", ":.6f")
-    total_traj = 0
-    ade_outer, fde_outer = [], []
-    # mode = model.training
+
+    #total_traj = 0
+    #ade_outer, fde_outer = [], []
+
     model.eval()
     with torch.no_grad():
         for i, batch in enumerate(val_loader):
-            batch = [tensor.cuda() for tensor in batch]
-            (
-                obs_traj,
-                pred_traj_gt,
-                obs_traj_rel,
-                pred_traj_gt_rel,
-                non_linear_ped,
-                loss_mask,
-                seq_start_end,
-                global_indices,
-                t_embeddings,
-            ) = batch
-            ade, fde = [], []
-            loss_val = torch.zeros(1).to(pred_traj_gt)
-            total_traj += pred_traj_gt.size(1)
-            pred_len = pred_traj_gt.size(0)
-            loss_mask = loss_mask[:, args.obs_len:]
-            pred_traj_fake_rel = model(obs_traj_rel, seq_start_end)
+            batch = SceneBatch(batch, device="cuda")
 
+            #ade, fde = [], []
+            #loss_val = torch.zeros(1).to(pred_traj_gt)
+            #total_traj += pred_traj_gt.size(1)
+
+            pred_traj_fake_rel = model(batch.obs_traj_rel, batch.seq_start_end)
             pred_traj_fake_rel_predpart = pred_traj_fake_rel[-args.pred_len:]
-            pred_traj_fake = relative_to_abs(
-                pred_traj_fake_rel_predpart, obs_traj[-1])
-            ade_, fde_ = cal_ade_fde(pred_traj_gt, pred_traj_fake)
-            loss_val += l2_loss(pred_traj_fake_rel_predpart,
-                                pred_traj_gt_rel, loss_mask, mode="average")
-            losses_val.update(loss_val.item(), obs_traj.shape[1])
-            ade_sum = sum(ade_)
-            fde_sum = sum(fde_)
-            ade_outer.append(ade_sum)
-            fde_outer.append(fde_sum)
-        ade = sum(ade_outer).item() / (total_traj * pred_len)
-        fde = sum(fde_outer).item() / (total_traj)
 
-    # model.train(mode=mode)
-    return ade, losses_val.avg
+            pred_traj_fake = relative_to_abs(pred_traj_fake_rel_predpart, batch.obs_traj[-1])
+
+            ade_, fde_ = cal_ade_fde(batch.pred_traj, pred_traj_fake)
+            ade_per_ped = ade_ / args.pred_len
+
+            num_trajs = batch.pred_traj.size(1)
+
+            ade.update(torch.mean(ade_per_ped).item(), num_trajs)
+            fde.update(torch.mean(fde_).item(), num_trajs)
+
+            loss_val = l2_loss(pred_traj_fake_rel_predpart, batch.pred_traj_rel, mode="average")
+
+            losses_val.update(loss_val.item(), num_trajs)
+
+            # = sum(ade_)
+            #fde_sum = sum(fde_)
+            #ade_outer.append(ade_sum)
+            #fde_outer.append(fde_sum)
+        #ade = sum(ade_outer).item() / (total_traj * pred_len)
+        #fde = sum(fde_outer).item() / (total_traj)
+
+    return ade.avg, fde.avg, losses_val.avg
 
 
 def validate_cl_replay(args, model, x_rel_val, y_rel_val, seq_start_end_val):
@@ -354,28 +353,18 @@ def validate(args, model, val_loader, epoch, writer=None):
     model.eval()
     with torch.no_grad():
         for i, batch in enumerate(val_loader):
-            batch = [tensor.cuda() for tensor in batch]
-            (
-                obs_traj,
-                pred_traj_gt,
-                obs_traj_rel,
-                pred_traj_gt_rel,
-                non_linear_ped,
-                loss_mask,
-                seq_start_end,
-                global_indices,
-                t_embeddings,
-            ) = batch
+            batch = SceneBatch(batch, device="cuda")
+            
             ade, fde = [], []
-            total_traj += pred_traj_gt.size(1)
-            pred_len = pred_traj_gt.size(0)
-            loss_mask = loss_mask[:, args.obs_len:]
-            pred_traj_fake_rel = model(obs_traj_rel, seq_start_end)
+            total_traj += batch.pred_traj.size(1)
+            pred_len = batch.pred_traj.size(0)
+            loss_mask = batch.loss_mask[:, args.obs_len:]
+            pred_traj_fake_rel = model(batch.obs_traj_rel, batch.seq_start_end)
 
             pred_traj_fake_rel_predpart = pred_traj_fake_rel[-args.pred_len:]
             pred_traj_fake = relative_to_abs(
-                pred_traj_fake_rel_predpart, obs_traj[-1])
-            ade_, fde_ = cal_ade_fde(pred_traj_gt, pred_traj_fake)
+                pred_traj_fake_rel_predpart, batch.obs_traj[-1])
+            ade_, fde_ = cal_ade_fde(batch.pred_traj, pred_traj_fake)
             ade_sum = sum(ade_)
             fde_sum = sum(fde_)
             ade_outer.append(ade_sum)
@@ -391,3 +380,90 @@ def validate(args, model, val_loader, epoch, writer=None):
         writer.add_scalar("val_ade", ade, epoch)
     model.train(mode=mode)
     return ade
+
+def variation_of_clsgr_being_executed(args):
+    variation_of_clsgr_executed = "IL"
+    if args.method == "continual_learning":
+        variation_of_clsgr_executed = "CL_"
+        if args.replay == "none":
+            variation_of_clsgr_executed += "NR"
+        elif args.replay == "exemplars":
+            variation_of_clsgr_executed += "ER"
+        elif args.replay == "generative" and args.replay_model == "condition":
+            variation_of_clsgr_executed += "CGR"
+        else:
+            variation_of_clsgr_executed += "SGR"
+            
+            if args.use_kl_annealing:
+                variation_of_clsgr_executed += "eKLAN"
+            if args.adapt_architecture_to_include_sequence_embedding:
+                variation_of_clsgr_executed += "eLLM"
+            if args.use_gradient_clipping:
+                variation_of_clsgr_executed += "eGC"
+            if args.use_skip_connection:
+                variation_of_clsgr_executed += "eSC"
+
+    return variation_of_clsgr_executed
+
+
+def clean_text(text: str) -> str:
+    text = re.sub(r'\(.*?\)', '', text).strip()
+    text = re.sub(r'\s+([,.:;])', r'\1', text)
+    text = re.sub(r'\$.*?([-+]?\d*\.?\d+).*?\$', r'\1', text, flags=re.DOTALL)
+    text = re.sub(r'`(.*?)`', r'\1', text)
+    text = re.sub(r'\*\*(.*?)\*\*', r'\1', text)
+    text = re.sub(r'__(.*?)__', r'\1', text)
+    text = re.sub(r'_(.*?)_', r'\1', text)
+    text = re.sub('\s+', ' ', text)
+    
+    return text
+
+
+def get_cyclical_beta(current_step, total_steps, n_cycles=1, ratio=0.0, shape="linear"):
+    """
+    Calcula o valor de Beta (KL weight) usando agendamento cíclico.
+    
+    Args:
+        current_step (int): Época ou iteração atual.
+        total_steps (int): Total de épocas ou iterações planejadas.
+        n_cycles (int): Quantos ciclos 'sobe-mantém' acontecerão durante o treino (M).
+        ratio (float): Proporção do ciclo usada para subir de 0 a 1 (R). 
+                       O restante (1-R) mantém em 1.
+    
+    Returns:
+        float: Valor de beta para o passo atual.
+    """
+    # Evita divisão por zero
+    if total_steps == 0:
+        return 1.0
+
+    if ratio <= 1e-9:
+        return 1.0
+
+    # Tamanho de um ciclo
+    period = total_steps / n_cycles
+
+    # Onde estamos dentro do ciclo atual (de 0.0 a 1.0)
+    step_in_cycle = current_step % period
+    tau = step_in_cycle / period
+
+    # Lógica Cíclica: Linear até 'ratio', depois constante em 1.0
+    if tau > ratio:
+        beta = 1.0
+    else:
+        # Sobe linearmente de 0 a 1
+        progress = tau / ratio
+        
+        if shape == 'linear':
+            beta = progress
+        elif shape == 'sigmoid':
+            # Sigmoide ajustada para ir de 0 a 1 suavemente no intervalo
+            # Muito mais lento no início que o linear
+            beta = 1 / (1 + math.exp(-12 * (progress - 0.5)))
+        elif shape == 'quadratic':
+            # Sobe lentamente no início e acelera (curva x^2)
+            beta = progress ** 2
+        else:
+            beta = progress
+
+    return beta

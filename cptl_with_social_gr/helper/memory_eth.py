@@ -5,18 +5,11 @@ from data.trajectories_memory import TrajectoryDataset, seq_collate
 from torch.utils.data import DataLoader
 
 
-# parser = argparse.ArgumentParser('./main.py', description='Run experiment.')
-# parser.add_argument('--obs_len', default=8, type=int, help="the observed frame of trajectory")
-# parser.add_argument('--pred_len', default=12, type=int, help="the predicted frame of trajectory")
-# parser.add_argument('--skip', default=1, type=int)
-# parser.add_argument('--delim', default='\t')
-# parser.add_argument('--loader_num_workers', default=8, type=int)
-# args = parser.parse_args()
-
 def memory_buff(args):
     # eth
     train_path_eth = utils.get_dset_path("ETH", 'train')
-    train_dset_eth = data_dset(args, train_path_eth)
+    train_dset_eth = data_dset(
+        args, train_path_eth, t_embedding_path=args.llm_motion_cues_and_clusters_ids_filepaths_mapping["ETH"]["llm_motion_cues"], dataset_name="ETH")
     num_memory_eth = int(0.1 * len(train_dset_eth))
     dataset_eth = data_loader(args, train_dset_eth, num_memory_eth)
     batch_eth = []
@@ -30,6 +23,7 @@ def memory_buff(args):
             non_linear_ped,
             loss_mask,
             seq_start_end,
+            t_embeddings,
         ) = batch_eth
 
         out = [
@@ -37,8 +31,10 @@ def memory_buff(args):
             pred_traj_gt,
             obs_traj_rel,
             pred_traj_gt_rel,
-            seq_start_end
+            seq_start_end,
+            t_embeddings
         ]
+
         break
 
     dset = TrajectoryDataset(
@@ -47,6 +43,7 @@ def memory_buff(args):
         out[2].detach().cpu(),
         out[3].detach().cpu(),
         out[4].detach().cpu(),
+        out[5].detach().cpu(),
     )
     # print("create dset")
     loader = DataLoader(

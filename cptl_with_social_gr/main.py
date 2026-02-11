@@ -14,7 +14,6 @@ import logging
 from torch.utils.tensorboard import SummaryWriter
 
 from train import train_cl, train
-from helper.replayer import Replayer
 from helper import evaluate
 from helper import visual_plt
 from helper import callbacks as cb
@@ -23,232 +22,11 @@ from helper.param_values import set_default_values
 from helper.param_stamp import get_param_stamp
 from helper.continual_learner import ContinualLearner
 
-###################################
-# Experiments arguments
-###################################
-parser = argparse.ArgumentParser('./main.py', description='Run experiment.')
-parser.add_argument('--get-stamp', action='store_true',
-                    help="print param-stamp & exit")
-parser.add_argument('--seed', type=int, default=72,
-                    help="random seed (for each random-module used)")
-parser.add_argument('--no-gups', action='store_false',
-                    dest='cuda', help="do not use GPUs")
-parser.add_argument('--data-dir', type=str,
-                    default='./datasets', dest='d_dir', help="default")
-parser.add_argument('--plot-dir', type=str,
-                    default='./plots', dest='p_dir', help="default")
-parser.add_argument('--results-dir', type=str,
-                    default='./results', dest='r_dir', help="default")
-
-dataset_choices = ['pedestrian', 'vehicle', 'interaction']
-parser.add_argument('--dataset_order', type=str,
-                    default='pedestrian', choices=dataset_choices)
-
-method_choices = ['batch_learning', 'continual_learning']
-parser.add_argument('--method', type=str,
-                    default='batch_learning', choices=method_choices)
-
-###################################
-# Training arguments
-###################################
-train_params = parser.add_argument_group('Training Parameters')
-train_params.add_argument('--iters', type=int, default=400,
-                          help="batches to optimize solver")
-train_params.add_argument(
-    '--lr', type=float, default=0.001, help="learning rate")
-train_params.add_argument('--batch_size', type=int,
-                          default=64, help="batch-size")
-train_params.add_argument('--optimizer', type=str,
-                          choices=['adam', 'adam_reset', 'sgd'], default='adam')
-train_params.add_argument('--obs_len', default=8,
-                          type=int, help="the observed frame of trajectory")
-train_params.add_argument('--pred_len', default=12,
-                          type=int, help="the predicted frame of trajectory")
-train_params.add_argument('--skip', default=1, type=int)
-train_params.add_argument('--delim', default='\t')
-train_params.add_argument('--loader_num_workers', default=8, type=int)
-train_params.add_argument("--gpu_index", default=0, type=int)
-
-augmentation_choices = ["none", "rotation"]
-train_params.add_argument("--aug", type=str, default='none',
-                          choices=augmentation_choices, help="whether to rotation the data")
-
-train_params.add_argument('--val_epoch', default=150,
-                          type=int, help="epoch start to validation")
-
-###################################
-# Main model arguments
-###################################
-# LSTM
-model_params = parser.add_argument_group('Main Model Parameters')
-model_params.add_argument('--traj_lstm_input_size', default=2, type=int)
-model_params.add_argument('--traj_lstm_hidden_size', default=32, type=int)
-model_params.add_argument('--traj_lstm_output_size', default=32, type=int)
-# GAT
-model_params.add_argument("--heads", type=str, default="4,1",
-                          help="Heads in each layer, splitted with comma")
-model_params.add_argument("--hidden-units", type=str, default="16",
-                          help="Hidden units in each hidden layer, splitted with comma")
-model_params.add_argument("--graph_network_out_dims", type=int,
-                          default=32, help="dims of every node after through GAT module")
-model_params.add_argument("--graph_lstm_hidden_size", default=32, type=int)
-model_params.add_argument("--dropout", type=float,
-                          default=0, help="Dropout rate (1 - keep probability)")
-model_params.add_argument("--alpha", type=float,
-                          default=0.2, help="Alpha for the leaky_relu.")
-
-model_choices = ["lstm", "gat"]
-model_params.add_argument('--main_model', default='lstm', type=str,
-                          choices=model_choices, help="the main model of CL and BL")
-
-###################################
-# Generative model arguments
-###################################
-gen_params = parser.add_argument_group('Generator Hyper Parameters')
-gen_params.add_argument('--g-iters', type=int,
-                        help="batches to train generator (default: same as lstm)")
-gen_params.add_argument('--lr_gen', type=float, default=0.001,
-                        help="learning rate generator (default: same as lr)")
-gen_params.add_argument('--replay_batch_size', type=int, default=64,
-                        help="replay batch size, it is same with batch size")
-
-###################################
-# Memory replay arguments
-###################################
-replay_params = parser.add_argument_group('Generative Replay Parameters')
-replay_params.add_argument(
-    '--z_dim', type=int, default=200, help="size of latent representation")
-
-replay_choices = ['offline', 'exact',
-                  'generative', 'none', 'current', 'exemplars']
-replay_params.add_argument(
-    '--replay', type=str, default='none', choices=replay_choices)
-
-replay_params.add_argument('--x_dim', default=2, type=int)
-replay_params.add_argument('--h_dim', default=64, type=int)
-replay_params.add_argument('--n_layers', default=1, type=int)
-
-replay_model_choices = ['lstm', 'vrnn', 'condition']
-replay_params.add_argument('--replay_model', default='lstm', type=str,
-                           choices=replay_model_choices, help="the generative replay model of CL")
-
-###################################
-# Memory allocation arguments
-###################################
-cl_params = parser.add_argument_group('Memory Allocation Parameters')
-cl_params.add_argument('--si', action='store_true',
-                       help="use 'Synaptic Intelligence' (Zenke, Poole et al, 2017)")
-cl_params.add_argument('--c', type=float, dest="si_c",
-                       help="--> SI: regularisation strength")
-cl_params.add_argument('--epsilon', type=float, default=0.1,
-                       dest="epsilon", help="--> SI: dampening parameter")
-
-###################################
-# Evolution arguments
-###################################
-eval_params = parser.add_argument_group('Evaluation parameters')
-eval_params.add_argument('--time', action='store_true',
-                         help="keep track of total training time")
-eval_params.add_argument('--metrics', action='store_true',
-                         help="calculate additional metrics (e.g., BWT, forgetting)")
-eval_params.add_argument('--pdf', action='store_true',
-                         help="generator pdf with results")
-eval_params.add_argument('--visdom', action='store_true',
-                         help="use visdom for on-the-fly plots")
-eval_params.add_argument('--val', action='store_true',
-                         help="use validation data")
-
-class_choices = ['current', 'all', 'replay']
-eval_params.add_argument('--val_class', default='current', type=str, choices=class_choices,
-                         help='whether use current or previous task validation data')
-
-eval_params.add_argument(
-    '--log-per-task', action='store_true', help="set all visdom-logs to [iters]")
-eval_params.add_argument('--loss-log', type=int, default=20,
-                         metavar="N", help="iters after which to plot loss")
-eval_params.add_argument('--prec-log', type=int, default=20,
-                         metavar="N", help="iters after which to plot precision")
-eval_params.add_argument('--prec-n', type=int, default=1024,
-                         help="samples for evaluating solver's precision")
-eval_params.add_argument('--sample-log', type=int, default=500,
-                         metavar="N", help="iters after which to plot samples")
-eval_params.add_argument('--num_samples', type=int, default=20,
-                         help="sample trajectories when evaluation model")
-
-###################################
-# Large language model (LLM) arguments
-###################################
-llm_params = parser.add_argument_group('Large language model (LLM) parameters')
-llm_params.add_argument("--adapt_architecture_to_include_llm_motion_cues",
-                        action='store_true', help="")
-
-llm_motion_cues_and_clusters_ids_filepaths_mapping = {
-    "ETH": {
-        "llm_motion_cues": "/home/matheus/LLM4CPTL/cptl_with_social_gr/data_preprocessed/llm_motion_cues_qwen3-0.6b_qwen3-embedding-0.6b_ETH_1024_0.8_512_none_10.json",
-        "clusters_ids": "/home/matheus/LLM4CPTL/cptl_with_social_gr/data_preprocessed/clusters_id_map_ETH.json",
-    },
-
-    "UCY": {
-        "llm_motion_cues": "/home/matheus/LLM4CPTL/cptl_with_social_gr/data_preprocessed/llm_motion_cues_qwen3-0.6b_qwen3-embedding-0.6b_UCY_1024_0.8_512_none_10.json",
-        "clusters_ids": "/home/matheus/LLM4CPTL/cptl_with_social_gr/data_preprocessed/clusters_id_map_UCY.json",
-    },
-
-    "inD": {
-        "llm_motion_cues": "/home/matheus/LLM4CPTL/cptl_with_social_gr/data_preprocessed/llm_motion_cues_qwen3-0.6b_qwen3-embedding-0.6b_inD_1024_0.8_512_none_10.json",
-        "clusters_ids": "/home/matheus/LLM4CPTL/cptl_with_social_gr/data_preprocessed/clusters_id_map_inD.json",
-    },
-
-    "INTERACTION": {
-        "llm_motion_cues": "/home/matheus/LLM4CPTL/cptl_with_social_gr/data_preprocessed/llm_motion_cues_qwen3-0.6b_qwen3-embedding-0.6b_INTERACTION_1024_0.8_512_none_10.json",
-        "clusters_ids": "/home/matheus/LLM4CPTL/cptl_with_social_gr/data_preprocessed/clusters_id_map_INTERACTION.json",
-    },
-}
-llm_params.add_argument("--llm_motion_cues_and_clusters_ids_filepaths_mapping",
-                        type=dict, default=llm_motion_cues_and_clusters_ids_filepaths_mapping, help="")
-
-###################################
-# Observed trajectory concatenation arguments
-###################################
-zp_params = parser.add_argument_group('Observed trajectory concatenation')
-zp_params.add_argument("--use_observed_trajectories_Zp",
-                       action='store_true', help="")
-zp_params.add_argument("--Zp_dim", default=32, type=int)
-
-###################################
-# Positional encoding arguments
-###################################
-pe_params = parser.add_argument_group('Positional encoding')
-pe_params.add_argument("--adapt_architecture_to_include_positional_encoding",
-                       action='store_true', help="")
-pe_params.add_argument("--PE_dim", default=32, type=int)
-
-###################################
-# Batch learning arguments
-###################################
-batch_params = parser.add_argument_group('Batch learning parameters')
-batch_params.add_argument("--log_dir", default="ETH",
-                          help="Directory containing logging file")
-batch_params.add_argument("--dataset_name", default="ETH", type=str)
-batch_params.add_argument("--start_epoch", default=1, type=int,
-                          metavar="N", help="manual epoch number (useful on restarts)")
-batch_params.add_argument("--print_every", default=10, type=int)
-batch_params.add_argument("--resume", default="", type=str,
-                          metavar="PATH", help="path to latest checkpoint (default: none)")
-batch_params.add_argument("--checkpoint_log", default=50,
-                          type=int, help="iters after which to save checkpoint")
-
-###################################
-# Codecarbon arguments
-###################################
-codecarbon_params = parser.add_argument_group('Codecarbon parameters')
-codecarbon_params.add_argument(
-    "--use_codecarbon", action='store_true', help="")
+from args import get_all_args
 
 ###################################
 # Functions
 ###################################
-
-
 def run(args, verbose=False):
     # Device definition:
     cuda = torch.cuda.is_available() and args.cuda
@@ -277,19 +55,7 @@ def run(args, verbose=False):
     n_heads = [int(x) for x in args.heads.strip().split(",")]
 
     # Identification of the name of the requested experiment to be run:
-    variation_of_clsgr_executed = ""
-    if args.method == "batch_learning":
-        variation_of_clsgr_executed = "IL"
-    elif args.method == "continual_learning":
-        variation_of_clsgr_executed = "CL_"
-        if args.replay == "none":
-            variation_of_clsgr_executed += "NR"
-        elif args.replay == "exemplars":
-            variation_of_clsgr_executed += "ER"
-        elif args.replay == "generative" and args.replay_model == "condition":
-            variation_of_clsgr_executed += "CGR"
-        else:
-            variation_of_clsgr_executed += "SGR"
+    variation_of_clsgr_executed = utils.variation_of_clsgr_being_executed(args)
 
     # Carbon emission tracker if requested for this experiment:
     if args.use_codecarbon:
@@ -324,9 +90,9 @@ def run(args, verbose=False):
             from data.loader import data_loader, data_dset
         else:
             from data.loader_rotation import data_loader
-        train_dset = data_dset(args, train_path)
+        train_dset = data_dset(args, train_path, dataset_name=args.dataset_name, split_name="train")
         train_loader = data_loader(args, train_dset, args.batch_size)
-        val_dset = data_dset(args, val_path)
+        val_dset = data_dset(args, val_path, dataset_name=args.dataset_name, split_name="val")
         val_loader = data_loader(args, val_dset, args.batch_size)
         writer = SummaryWriter()
 
@@ -339,13 +105,21 @@ def run(args, verbose=False):
                 traj_lstm_hidden_size=args.traj_lstm_hidden_size,
                 traj_lstm_output_size=args.traj_lstm_output_size
             )
+
         if args.main_model == "gat":
             from main_model.encoder_gat import Predictor
             model = Predictor(
-                obs_len=args.obs_len, pred_len=args.pred_len, traj_lstm_input_size=args.traj_lstm_input_size,
-                traj_lstm_hidden_size=args.traj_lstm_hidden_size, traj_lstm_output_size=args.traj_lstm_output_size,
-                n_units=n_units, n_heads=n_heads, graph_network_out_dims=args.graph_network_out_dims,
-                dropout=args.dropout, alpha=args.alpha, graph_lstm_hidden_size=args.graph_lstm_hidden_size
+                obs_len=args.obs_len,
+                pred_len=args.pred_len,
+                traj_lstm_input_size=args.traj_lstm_input_size,
+                traj_lstm_hidden_size=args.traj_lstm_hidden_size,
+                traj_lstm_output_size=args.traj_lstm_output_size,
+                n_units=n_units,
+                n_heads=n_heads,
+                graph_network_out_dims=args.graph_network_out_dims,
+                dropout=args.dropout,
+                alpha=args.alpha,
+                graph_lstm_hidden_size=args.graph_lstm_hidden_size
             )
         model.cuda()
         optimizer = optim.Adam(model.parameters(), lr=args.lr)
@@ -353,18 +127,16 @@ def run(args, verbose=False):
         if args.resume:
             if os.path.isfile(args.resume):
                 logging.info(
-                    "Restoring from checkpoint {}".format(args.resume))
+                    f"Restoring from checkpoint {args.resume}")
                 checkpoint = torch.load(args.resume)
                 args.start_epoch = checkpoint["epoch"]
                 model.load_state_dict(checkpoint["state_dict"])
                 logging.info(
-                    "=> loaded checkpoint '{}' (epoch {})".format(
-                        args.resume, checkpoint["epoch"]
-                    )
+                    f"=> loaded checkpoint '{args.resume}' (epoch {checkpoint['epoch']})"
                 )
             else:
                 logging.info(
-                    "=> no checkpoint found at '{}'".format(args.resume))
+                    f"=> no checkpoint found at '{args.resume}'")
 
         if args.time:
             start = time.time()
@@ -422,6 +194,8 @@ def run(args, verbose=False):
     # Continual learning
     ###############################################################################
     if args.method == "continual_learning":
+        logging.info("This experiment will make use of continual learning")
+
         # Set default arguments & check for incompatible options
         args.lr_gen = args.lr if args.lr_gen is None else args.lr_gen
         args.g_iters = args.iters if args.g_iters is None else args.g_iters
@@ -448,18 +222,7 @@ def run(args, verbose=False):
             print("\nPreparing the data...")
 
         # Defining train, validation, and test dataset orders:
-        if args.dataset_order == 'pedestrian':
-            train_order = ['ETH', 'UCY', 'inD', 'INTERACTION']
-            val_order = ['ETH', 'UCY', 'inD', 'INTERACTION']
-            test_order = ['ETH', 'UCY', 'inD', 'INTERACTION']
-        if args.dataset_order == 'vehicle':
-            train_order = ['highD', 'inD', 'rounD']
-            val_order = ['highD', 'inD', 'rounD']
-            test_order = ['highD', 'inD', 'rounD']
-        if args.dataset_order == 'interaction':
-            train_order = ['MT', 'SR', 'LN', 'OF']
-            val_order = ['MT', 'SR', 'LN', 'OF']
-            test_order = ['MT', 'SR', 'LN', 'OF']
+        train_order = val_order = test_order = args.dataset
 
         # Number of tasks (datasets) to be analyzed:
         tasks = len(train_order)
@@ -467,7 +230,7 @@ def run(args, verbose=False):
         # Lists to storage the readed datasets and data loader objects:
         train_datasets = []
         val_datasets = []
-        val_dataset = []
+        val_loaders = []
         test_datasets = []
 
         # Loading the correct loader function according to the the preprocessing to be applid on data (if any):
@@ -478,18 +241,25 @@ def run(args, verbose=False):
 
         print("\nInitializing train dataset")
         for i, dataset_name in enumerate(train_order):
-            if args.adapt_architecture_to_include_llm_motion_cues:
+            if args.adapt_architecture_to_include_sequence_embedding:
                 print(
-                    f"LLM-generated descriptions and embeddings will be loaded from {args.llm_motion_cues_and_clusters_ids_filepaths_mapping[dataset_name]['llm_motion_cues']}")
+                    f"LLM-generated descriptions and embeddings will be loaded from {args.llm_sequences_embeddings_mapping.get(dataset_name).get('train')}")
 
             train_path = utils.get_dset_path(dataset_name, 'train')
 
+            embeddings_path = None
+            if args.adapt_architecture_to_include_sequence_embedding:
+                embeddings_map = args.llm_sequences_embeddings_mapping.get(dataset_name)
+                
+                embeddings_path = embeddings_map.get("train", None)
+                
+            
             train_dset = data_dset(
                 args,
                 train_path,
-                t_embedding_path=args.llm_motion_cues_and_clusters_ids_filepaths_mapping[
-                    dataset_name]["llm_motion_cues"] if args.adapt_architecture_to_include_llm_motion_cues else None,
-                dataset_name=dataset_name
+                sequences_embeddings_path=embeddings_path,
+                dataset_name=dataset_name,
+                split_name="train"
             )
 
             print(
@@ -500,8 +270,21 @@ def run(args, verbose=False):
         print("\nInitializing val dataset")
         for i, dataset_name in enumerate(val_order):
             val_path = utils.get_dset_path(dataset_name, "val")
+            
+            embeddings_path = None
+            if args.adapt_architecture_to_include_sequence_embedding:
+                embeddings_map = args.llm_sequences_embeddings_mapping.get(
+                    dataset_name)
 
-            val_dset = data_dset(args, val_path)
+                embeddings_path = embeddings_map.get("val", None)
+
+            val_dset = data_dset(
+                args,
+                val_path,
+                sequences_embeddings_path=embeddings_path,
+                dataset_name=dataset_name,
+                split_name="val"
+            )
 
             val_loader = data_loader(args, val_dset, args.batch_size)
 
@@ -510,15 +293,28 @@ def run(args, verbose=False):
 
             val_datasets.append(val_dset)
 
-            val_dataset.append(val_loader)
+            val_loaders.append(val_loader)
 
         print("\nInitializing test dataset")
         for i, dataset_name in enumerate(test_order):
             test_path = utils.get_dset_path(dataset_name, "test")
 
-            test_dset = data_dset(args, test_path)
+            embeddings_path = None
+            if args.adapt_architecture_to_include_sequence_embedding:
+                embeddings_map = args.llm_sequences_embeddings_mapping.get(
+                    dataset_name)
 
-            test_loader = data_loader(args, test_dset, args.batch_size)
+                embeddings_path = embeddings_map.get("test", None)
+
+            test_dset = data_dset(
+                args,
+                test_path,
+                sequences_embeddings_path=embeddings_path,
+                dataset_name=dataset_name,
+                split_name="test"
+            )
+
+            test_loader = data_loader(args, test_dset)
 
             print(
                 f"Dataset: {dataset_name} | Split: test | Number of trajectories: {test_dset.obs_traj.shape[0]}")
@@ -531,6 +327,7 @@ def run(args, verbose=False):
         # --------------------#
 
         # Define main model (i.e., lstm, if requested with feedback connections)
+        print("\nDefining the main model...")
         if args.main_model == "lstm":
             from main_model.encoder import Predictor
             model = Predictor(
@@ -540,13 +337,21 @@ def run(args, verbose=False):
                 traj_lstm_hidden_size=args.traj_lstm_hidden_size,
                 traj_lstm_output_size=args.traj_lstm_output_size
             ).to(device)
+
         if args.main_model == "gat":
             from main_model.encoder_gat import Predictor
             model = Predictor(
-                obs_len=args.obs_len, pred_len=args.pred_len, traj_lstm_input_size=args.traj_lstm_input_size,
-                traj_lstm_hidden_size=args.traj_lstm_hidden_size, traj_lstm_output_size=args.traj_lstm_output_size,
-                n_units=n_units, n_heads=n_heads, graph_network_out_dims=args.graph_network_out_dims,
-                dropout=args.dropout, alpha=args.alpha, graph_lstm_hidden_size=args.graph_lstm_hidden_size
+                obs_len=args.obs_len,
+                pred_len=args.pred_len,
+                traj_lstm_input_size=args.traj_lstm_input_size,
+                traj_lstm_hidden_size=args.traj_lstm_hidden_size,
+                traj_lstm_output_size=args.traj_lstm_output_size,
+                n_units=n_units,
+                n_heads=n_heads,
+                graph_network_out_dims=args.graph_network_out_dims,
+                dropout=args.dropout,
+                alpha=args.alpha,
+                graph_lstm_hidden_size=args.graph_lstm_hidden_size
             ).to(device)
 
         # Define optimizer (only include parameters that "requires_grad")
@@ -580,18 +385,27 @@ def run(args, verbose=False):
             fake_generator = None
             # Replay model architecture: LSTM or condition
             if args.replay_model == 'lstm' or args.replay_model == 'condition':
-                from generative_model.vae_models import AutoEncoder
+                from generative_model.vae_models_scratch import CVAE
 
-                generator = AutoEncoder(obs_len=args.obs_len,
-                                        pred_len=args.pred_len,
-                                        traj_lstm_input_size=args.traj_lstm_input_size,
-                                        traj_lstm_hidden_size=args.traj_lstm_hidden_size,
-                                        traj_lstm_output_size=args.traj_lstm_output_size,
-                                        z_dim=args.z_dim,
-                                        adapt_architecture_to_include_llm_motion_cues=args.adapt_architecture_to_include_llm_motion_cues,
-                                        adapt_architecture_to_include_positional_encoding=args.adapt_architecture_to_include_positional_encoding,
-                                        positional_encoding_dim=args.PE_dim
-                                        ).to(device)
+                generator = CVAE(obs_len=args.obs_len,
+                                 pred_len=args.pred_len,
+                                 traj_lstm_input_size=args.traj_lstm_input_size,
+                                 traj_lstm_hidden_size=args.traj_lstm_hidden_size,
+                                 traj_lstm_output_size=args.traj_lstm_output_size,
+                                 dropout=args.dropout,
+                                 z_dim=args.z_dim,
+                                 embedding_dim=args.embedding_dim,
+                                 mlp_dim=args.mlp_dim,
+                                 bottleneck_dim=args.bottleneck_dim,
+                                 activation='relu',
+                                 batch_norm=True,
+                                 adapt_architecture_to_include_sequence_embedding=args.adapt_architecture_to_include_sequence_embedding,
+                                 sequence_embedding_dimension=args.dimensions,
+                                 sequence_embedding_compressed_dimension=args.sequence_embedding_compressed_dimension,
+                                 use_gradient_clipping=args.use_gradient_clipping,
+                                 clip_gradient_max_norm=args.clip_gradient_max_norm,
+                                 use_skip_connection=args.use_skip_connection
+                                 ).to(device)
 
             # Define optimizer(s)
             generator.optim_type = args.optimizer
@@ -607,18 +421,27 @@ def run(args, verbose=False):
             generator = None
 
             if args.replay_model == 'lstm':
-                from generative_model.vae_models import AutoEncoder
+                from generative_model.vae_models_scratch import CVAE
 
-                fake_generator = AutoEncoder(obs_len=args.obs_len,
-                                             pred_len=args.pred_len,
-                                             traj_lstm_input_size=args.traj_lstm_input_size,
-                                             traj_lstm_hidden_size=args.traj_lstm_hidden_size,
-                                             traj_lstm_output_size=args.traj_lstm_output_size,
-                                             z_dim=args.z_dim,
-                                             adapt_architecture_to_include_llm_motion_cues=args.adapt_architecture_to_include_llm_motion_cues,
-                                             adapt_architecture_to_include_positional_encoding=args.adapt_architecture_to_include_positional_encoding,
-                                             positional_encoding_dim=args.PE_dim
-                                             ).to(device)
+                fake_generator = CVAE(obs_len=args.obs_len,
+                                      pred_len=args.pred_len,
+                                      traj_lstm_input_size=args.traj_lstm_input_size,
+                                      traj_lstm_hidden_size=args.traj_lstm_hidden_size,
+                                      traj_lstm_output_size=args.traj_lstm_output_size,
+                                      dropout=args.dropout,
+                                      z_dim=args.z_dim,
+                                      embedding_dim=args.embedding_dim,
+                                      mlp_dim=args.mlp_dim,
+                                      bottleneck_dim=args.bottleneck_dim,
+                                      activation='relu',
+                                      batch_norm=True,
+                                      adapt_architecture_to_include_sequence_embedding=args.adapt_architecture_to_include_sequence_embedding,
+                                      sequence_embedding_dimension=args.dimensions,
+                                      sequence_embedding_compressed_dimension=args.sequence_embedding_compressed_dimension,
+                                      use_gradient_clipping=args.use_gradient_clipping,
+                                      clip_gradient_max_norm=args.clip_gradient_max_norm,
+                                      use_skip_connection=args.use_skip_connection
+                                      ).to(device)
 
             # -Define optimizer(s):
             fake_generator.optim_type = args.optimizer
@@ -666,12 +489,8 @@ def run(args, verbose=False):
         # -Prepare for plotting in visdom
         # -visdom-settings
         if args.visdom:
-            env_name = "epoch-lstm-GR-lstm-replay-{exp}-{tasks}-{iters}-{z_dim}-{batch_size}-{replay_batch_size}-{lr}-{seed}-{val}-{val_class}-si{si}-{si_c}".format(
-                exp=args.dataset_order, tasks=tasks, iters=args.iters, z_dim=args.z_dim, batch_size=args.batch_size, replay_batch_size=args.replay_batch_size, lr=args.lr, seed=args.seed, val=args.val, val_class=args.val_class, si=args.si, si_c=args.si_c)
-            graph_name = "{fb}_{replay}".format(
-                fb="{}".format('SI' if args.si else ''),
-                replay="{}".format(args.replay),
-            )
+            env_name = f"epoch-lstm-GR-lstm-replay-{args.dataset}-{tasks}-{args.iters}-{args.iz_dim}-{args.ibatch_size}-{args.ireplay_batch_size}-{args.ilr}-{args.iseed}-{args.ival}-{args.ival_class}-si{args.isi}-{args.isi_c}"
+            graph_name = f"{'SI' if args.si else ''}_{args.replay}"
             visdom = {'env': env_name, 'graph': graph_name}
         else:
             visdom = None
@@ -691,7 +510,6 @@ def run(args, verbose=False):
             generator_loss_cbs = [
                 cb._VAE_loss_cb(log=args.loss_log,
                                 visdom=visdom,
-                                model=generator,
                                 tasks=tasks,
                                 iters_per_task=args.g_iters,
                                 replay=False if args.replay == "none" else True
@@ -701,7 +519,6 @@ def run(args, verbose=False):
             fake_generator_loss_cbs = [
                 cb._VAE_loss_cb(log=args.loss_log,
                                 visdom=visdom,
-                                model=fake_generator,
                                 tasks=tasks,
                                 iters_per_task=args.g_iters,
                                 replay=False if args.replay == "none" else True
@@ -713,7 +530,6 @@ def run(args, verbose=False):
         solver_loss_cbs = [
             cb._solver_loss_cb(log=args.loss_log,
                                visdom=visdom,
-                               model=model,
                                tasks=tasks,
                                iters_per_task=args.iters,
                                replay=False if args.replay == "none" else True
@@ -733,7 +549,7 @@ def run(args, verbose=False):
         # Callbacks for reporting and visualizing accuracy
         eval_cbs = [
             cb._eval_cb(log=args.prec_log,
-                        test_datasets=val_dataset,
+                        test_datasets=val_loaders,
                         visdom=visdom,
                         iters_per_task=args.iters
                         )
@@ -765,7 +581,7 @@ def run(args, verbose=False):
             tracker_carboncode.start()
 
         # Train model
-        diag_ades, diag_fdes, elpased_time_for_each_task = train_cl(args,
+        ade_matrix, fde_matrix, elpased_time_for_each_task = train_cl(args,
                                                                     best_ade,
                                                                     model,
                                                                     train_datasets,
@@ -799,10 +615,13 @@ def run(args, verbose=False):
             time_file.close()
 
         # Save trained model to a file for future load and inference:
-        model_checkpoint_filename = f"{args.r_dir}/{variation_of_clsgr_executed}_model_{model.name}_{args.iters}_{args.batch_size}_{args.replay_batch_size}.pth"
+        model_checkpoint_filename = f"{args.r_dir}/{variation_of_clsgr_executed}_mainModel_{model.name}_{args.iters}_{args.batch_size}_{args.replay_batch_size}.pth"
+
         utils.save_checkpoint(args=args, state=model.state_dict(
         ), is_best=False, filename=model_checkpoint_filename)
-        print(f"Trained model saved to {model_checkpoint_filename}")
+
+        print(
+            f"Final trained model (type: {type(model)}) saved to {model_checkpoint_filename}")
 
         # ------------------------------------------------------------------------------------------------------------------#
         # ------------------#
@@ -810,9 +629,10 @@ def run(args, verbose=False):
         # ------------------#
 
         if verbose:
-            print("\n\nEVALUATION RESULTS:")
+            print(
+                f"\n\nEVALUATION RESULTS of final trained model (type: {type(model)}) on each task-specific test-set:")
 
-        # Evaluate precision of final model on full test-set
+        # Evaluate precision of final model on full (all tasks) test-set
         ades = []
         fdes = []
         for i in range(tasks):
@@ -833,15 +653,17 @@ def run(args, verbose=False):
             print(f"=> Total training time = {training_time:.1f} seconds\n")
 
         if args.metrics:
-            backward_transfer_bwt_ade = backward_transfer_bwt_ade = 0
-            if diag_ades is not None and diag_fdes is not None:
-                backward_transfer_bwt_ade = (
-                    sum(ades) - sum(diag_ades)) / (tasks - 1)
-                backward_transfer_bwt_fde = (
-                    sum(fdes) - sum(diag_fdes)) / (tasks - 1)
+            backward_transfer_bwt_ade = forward_transfer_fwt_ade = true_bwt_ade = cbwt_per_task_ade = 0
+            backward_transfer_bwt_fde = forward_transfer_fwt_fde = true_bwt_fde = cbwt_per_task_fde = 0
 
-            metrics_filename = f"{args.r_dir}/{variation_of_clsgr_executed}_metrics-{args.replay}-{args.iters}-{args.batch_size}-{args.replay_batch_size}-{args.lr}-{args.main_model}-{args.dataset_order}-{args.seed}-{args.val}-{args.val_class}.csv"
+            if ade_matrix is not None:
+                backward_transfer_bwt_ade, forward_transfer_fwt_ade, true_bwt_ade, cbwt_per_task_ade = evaluate.calculate_cl_metrics(ade_matrix, error_metric="ADE")
+            if fde_matrix is not None:
+                backward_transfer_bwt_fde, forward_transfer_fwt_fde, true_bwt_fde, cbwt_per_task_fde = evaluate.calculate_cl_metrics(fde_matrix, error_metric="FDE")
+
+            metrics_filename = f"{args.r_dir}/{variation_of_clsgr_executed}_metrics-{args.replay}-{args.iters}-{args.batch_size}-{args.replay_batch_size}-{args.lr}-{args.main_model}-{args.dataset}-{args.seed}-{args.val}-{args.val_class}.csv"
             metrics_data = {
+                # Experiment settings:
                 'method': variation_of_clsgr_executed,
                 'train_dataset': ' - '.join(train_order),
                 'test_dataset': ' - '.join(test_order),
@@ -854,10 +676,16 @@ def run(args, verbose=False):
                 'replay_batch_size': args.replay_batch_size,
                 'iters': args.iters,
                 'main_predictor_model': args.main_model,
+                # Standard error metrics:
                 'average_prediction_error_ape_ade': average_ades,
                 'average_prediction_error_ape_fde': average_fdes,
+                # Continuous learning metrics:
                 'backward_transfer_bwt_ade': backward_transfer_bwt_ade,
+                'forward_transfer_fwt_ade': forward_transfer_fwt_ade,
+                'true_bwt_ade': true_bwt_ade,
                 'backward_transfer_bwt_fde': backward_transfer_bwt_fde,
+                'forward_transfer_fwt_fde': forward_transfer_fwt_fde,
+                'true_bwt_fde': true_bwt_fde,
             }
 
             for i in range(tasks):
@@ -873,6 +701,17 @@ def run(args, verbose=False):
                     {f"elapsed_time_task_{i+1}": elpased_time_for_each_task[i]}
                 )
 
+                if i != tasks - 1:
+                    metrics_data.update(
+                        {f"ade_cbwt_task_{i+1}": cbwt_per_task_ade[i]}
+                    )
+
+                    metrics_data.update(
+                        {f"fde_cbwt_task_{i+1}": cbwt_per_task_fde[i]}
+                    )
+                else:
+                    continue
+
             metrics_dataframe = pd.DataFrame(metrics_data, index=[0])
             metrics_dataframe.to_csv(metrics_filename, index=False)
 
@@ -884,7 +723,7 @@ def run(args, verbose=False):
         # -------------------# #
 
         # Average precision on full test set
-        output_file = open(f"{args.r_dir}/{variation_of_clsgr_executed}_prec-{args.replay}-{args.iters}-{args.z_dim}-{args.batch_size}-{args.replay_batch_size}-{args.lr}-{args.aug}-{args.main_model}-{args.dataset_order}-{args.seed}-{args.val}-{args.val_class}-si{args.si}-{args.si_c}.txt", "w")
+        output_file = open(f"{args.r_dir}/{variation_of_clsgr_executed}_prec-{args.replay}-{args.iters}-{args.z_dim}-{args.batch_size}-{args.replay_batch_size}-{args.lr}-{args.aug}-{args.main_model}-{args.dataset}-{args.seed}-{args.val}-{args.val_class}-si{args.si}-{args.si_c}.txt", "w")
 
         output_file.write(
             f"Training:{train_order}\nADEs:{ades}\nADE:{average_ades}\nFDEs:{fdes}\nFDE:{average_fdes}")
@@ -962,7 +801,7 @@ def run(args, verbose=False):
                 pp.savefig(figure)
 
             # output
-            output_file = open(f"{args.r_dir}/{variation_of_clsgr_executed}_ADE-FDE-{args.replay}-{args.iters}-{args.z_dim}-{args.batch_size}-{args.replay_batch_size}-{args.lr}-{args.aug}-{args.main_model}-{args.dataset_order}-{args.seed}_{args.val}_{args.val_class}_{args.si}_{args.si_c}.txt", "w")
+            output_file = open(f"{args.r_dir}/{variation_of_clsgr_executed}_ADE-FDE-{args.replay}-{args.iters}-{args.z_dim}-{args.batch_size}-{args.replay_batch_size}-{args.lr}-{args.aug}-{args.main_model}-{args.dataset}-{args.seed}_{args.val}_{args.val_class}_{args.si}_{args.si_c}.txt", "w")
 
             output_file.write(
                 'ADEs:{plot_ade_list}\nAverage_ADE:{metric_dict["average_ade"]}\nFDEs:{plot_fde_list}\nAverage_FDE:{metric_dict["average_fde"]}')
@@ -983,10 +822,10 @@ def run(args, verbose=False):
             results_dict["average ade per task"] = metric_dict["average_ade"]
             results_dict["average fde per task"] = metric_dict["average_fde"]
 
-            utils.save_dict(results_dict, f"{args.r_dir}/{variation_of_clsgr_executed}_continual_learning_{args.replay}_{args.z_dim}_{args.batch_size}_{args.replay_batch_size}_{args.aug}_{args.main_model}_{args.dataset_order}_{args.seed}_{args.val}_{args.val_class}_{args.si}_{args.si_c}")
+            utils.save_dict(results_dict, f"{args.r_dir}/{variation_of_clsgr_executed}_continual_learning_{args.replay}_{args.z_dim}_{args.batch_size}_{args.replay_batch_size}_{args.aug}_{args.main_model}_{args.dataset}_{args.seed}_{args.val}_{args.val_class}_{args.si}_{args.si_c}")
 
             utils.save_dict_txt(
-                results_dict, f"{args.r_dir}/{variation_of_clsgr_executed}_continual_learning_{args.replay}_{args.z_dim}_{args.batch_size}_{args.replay_batch_size}_{args.aug}_{args.main_model}_{args.dataset_order}_{args.seed}_{args.val}_{args.val_class}_{args.si}_{args.si_c}")
+                results_dict, f"{args.r_dir}/{variation_of_clsgr_executed}_continual_learning_{args.replay}_{args.z_dim}_{args.batch_size}_{args.replay_batch_size}_{args.aug}_{args.main_model}_{args.dataset}_{args.seed}_{args.val}_{args.val_class}_{args.si}_{args.si_c}")
 
             # -close pdf
             pp.close()
@@ -1001,7 +840,7 @@ def run(args, verbose=False):
 ###################################
 if __name__ == '__main__':
     # Load arguments
-    args = parser.parse_args()
+    args = get_all_args(load_yaml=True)
     # Set default values for certain arguments
     args = set_default_values(args)
     # Run experiment

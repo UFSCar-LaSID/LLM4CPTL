@@ -3,7 +3,8 @@
 # Variables:
 user_root_folder=/home/matheus
 python_script=$user_root_folder/LLM4CPTL/cptl_with_social_gr/main.py
-batch_size=1024
+dataset=(ETH UCY inD INTERACTION)
+batch_size=64
 replay_batch_size=$batch_size
 iters=200
 
@@ -21,6 +22,7 @@ cd $user_root_folder/LLM4CPTL/cptl_with_social_gr
 
 # Main script execution:
 nohup python $python_script \
+	--dataset "${dataset[@]}" \
 	--method=continual_learning \
 	--replay=none  \
   	--batch_size=$batch_size \
@@ -28,7 +30,6 @@ nohup python $python_script \
   	--iters=$iters \
 	--time \
 	--metrics \
-	--pdf \
 	> ../logs/tmp_out.log \
 	2> ../logs/tmp_err.log &
 

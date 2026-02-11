@@ -3,9 +3,10 @@
 # Variables:
 user_root_folder=/home/matheus
 python_script=$user_root_folder/LLM4CPTL/cptl_with_social_gr/main.py
-batch_size=1024
+dataset=(ETH UCY inD INTERACTION)
+batch_size=64
 replay_batch_size=$batch_size
-iters=3
+iters=200
 
 # Conda-specific commands:
 source ~/miniconda3/etc/profile.d/conda.sh
@@ -21,20 +22,17 @@ cd $user_root_folder/LLM4CPTL/cptl_with_social_gr
 
 # Main script execution:
 nohup python $python_script \
+	--dataset "${dataset[@]}" \
 	--method=continual_learning \
 	--replay=generative  \
   	--batch_size=$batch_size \
   	--replay_batch_size=$replay_batch_size \
   	--iters=$iters \
-  	--use_llm_generated_motion_cues \
-  	--use_observed_trajectories_Zp \
-  	--use_positional_encoding_PE \
+	--time \
+	--metrics \
 	> ../logs/tmp_out.log \
 	2> ../logs/tmp_err.log &
-	#--time \
-	#--metrics \
-	#--pdf \
-
+	
 # Captura o PID do processo Python
 pid=$!
 

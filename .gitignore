@@ -1,5 +1,8 @@
 *.pkl
 *.path
+*.json
+*.pt
+*.yaml
 *.log
 IL_*
 CL_*
