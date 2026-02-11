@@ -33,5 +33,5 @@ All scripts were executed in a high performance computing (HPC) system named Lov
      ```
 4. Create a folder for logs:
    ```bash
-   mkdir cptl_with_social_gr/logs
+   mkdir logs
    ```

@@ -818,6 +818,9 @@ def train_cl(args,
         print(
             f"    Completed task {task}, dataset {current_dataset_name} in {elapsed_time_for_this_task:.2f} seconds")
 
+        elapsed_time_for_this_task = progress.format_dict['elapsed']
+        elpased_time_for_each_task.append(elapsed_time_for_this_task)
+
         # Close progress-bar(s)
         progress.close()
         if generator is not None:

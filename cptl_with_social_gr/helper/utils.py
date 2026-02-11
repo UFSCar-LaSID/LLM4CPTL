@@ -27,6 +27,8 @@ def get_dset_path(dset_name: str, dset_type: str):
     return os.path.join(_dir, '../datasets', dset_name, dset_type)
 
 # relative to absolute
+
+
 def relative_to_abs(rel_traj, start_pos):
     """
     Inputs:
@@ -303,7 +305,6 @@ def validate_cl(args, model, val_loader, epoch, writer=None):
         #fde = sum(fde_outer).item() / (total_traj)
 
     return ade.avg, fde.avg, losses_val.avg
-
 
 def validate_cl_replay(args, model, x_rel_val, y_rel_val, seq_start_end_val):
     ade = AverageMeter("ADE", ":.6f")

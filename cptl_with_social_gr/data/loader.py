@@ -26,5 +26,4 @@ def data_loader(args, dset, shuffle=False, pin_memory=True):
         collate_fn=seq_collate,
         pin_memory=pin_memory
     )
-
     return loader

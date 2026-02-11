@@ -144,6 +144,12 @@ def run(args, verbose=False):
         if args.use_codecarbon:
             tracker_carboncode.start()
 
+        if args.time:
+            start = time.time()
+
+        if args.use_codecarbon:
+            tracker_carboncode.start()
+
         for epoch in range(args.start_epoch, args.iters + 1):
             train(args, model, train_loader, optimizer, epoch, writer)
             if epoch >= args.val_epoch:
