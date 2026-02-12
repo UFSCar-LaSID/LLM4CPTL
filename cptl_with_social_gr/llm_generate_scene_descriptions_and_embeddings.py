@@ -62,11 +62,10 @@ def main(args: argparse.Namespace):
         quantization=None if args.quantization == "none" else args.quantization,
         gpu_memory_utilization=args.gpu_memory_utilization,
         enable_prompt_embeds=True,
-        #max_model_len=args.max_model_len,
+        max_model_len=args.max_model_len,
         runner="generate",
         enable_sleep_mode=True,
-        max_num_seqs=args.max_num_seqs,
-        trust_remote_code=True
+        max_num_seqs=args.max_num_seqs
         # enforce_eager=True
         # enable_prefix_caching=False
     )
@@ -77,27 +76,26 @@ def main(args: argparse.Namespace):
         quantization=None if args.quantization == "none" else args.quantization,
         gpu_memory_utilization=args.gpu_memory_utilization,
         enable_prompt_embeds=True,
-        #max_model_len=args.max_model_len,
+        max_model_len=args.max_model_len,
         runner="pooling",
         # enforce_eager=True,
         enable_sleep_mode=True,
         hf_overrides={"is_matryoshka": True},
-        max_num_seqs=args.max_num_seqs,
-        trust_remote_code=True
+        max_num_seqs=args.max_num_seqs
         # enable_prefix_caching=False
     )
 
     llm_embedding.sleep(level=1)
     
     print(f"Loading Tokenizer: {args.tokenizer_name}")
-    tokenizer = AutoTokenizer.from_pretrained(args.model_generative_name)
+    tokenizer = AutoTokenizer.from_pretrained(args.model_generative_name, trust_remote_code=True)
 
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
     
     system_prompt = {
         "role": "system",
-        "content": [{"type": "text", "text": "You are an expert who can analyze different statiscts extracted from a pedestrian trajectory scene. Your task is to convert the statistical data and a received reference image of the scene into a plain-text, single-paragraph, rich, semantic textual description which includes information on the likely behaviour of agents, social dynamics, collision risk level and the scene's geometry. Transform any digits, numbers, percentages, or raw statistics into qualitative terms."}]
+        "content": "You are an expert who can analyze different statiscts extracted from a pedestrian trajectory scene. Your task is to convert the statistical data into a plain-text, single-paragraph, rich, semantic textual description which includes information on the likely behaviour of agents, social dynamics, collision risk level and the scene's geometry. Transform any digits, numbers, percentages, or raw statistics into qualitative terms."
     }
     
     model_generative_formatted_name = args.model_generative_name.lower().split('/')[-1]
@@ -149,10 +147,7 @@ def main(args: argparse.Namespace):
                 
                 user_prompt = {
                     "role": "user",
-                    "content": [
-                        {"type": "text", "text": f"Given the following scene reference image:"},
-                        {"type": "image", "image": scene_reference_image},
-                        {"type": "text", "text": f"And given the following statistics of the pedestrians trajectories present in that scene:\n{feature_prompt}, generate a rich, semantic, and qualitative textual description without leaking raw statistics values."}]
+                    "content": f"Given the following statistics of the pedestrians trajectories present in that scene:\n{feature_prompt}, generate a rich, semantic, and qualitative textual description without leaking raw statistics values."
                 }
                 
                 messages = [system_prompt, user_prompt]

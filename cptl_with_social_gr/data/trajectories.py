@@ -263,21 +263,6 @@ class TrajectoryDataset(Dataset):
         self.t_embed_dim = 0
         self.dataset_name = dataset_name
 
-        try:
-            with open(t_embedding_path, 'r') as f:
-                self.t_embedding_map = json.load(f)
-
-            if self.t_embedding_map:
-                first_key = next(iter(self.t_embedding_map["datasets"]))
-                self.t_embed_dim = len(
-                    self.t_embedding_map["datasets"][first_key]["0"]["description_embedding"])
-
-            self.embeddings_loaded = True
-
-        except Exception as e:
-            print(f"WARNING: Could not load T: {e}")
-            self.embeddings_loaded = False
-
         self.sequences_embeddings_loaded = False
         self.sequences_embeddings_dimension = 0
 

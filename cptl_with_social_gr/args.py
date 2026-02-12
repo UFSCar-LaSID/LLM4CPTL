@@ -384,19 +384,19 @@ def add_llm_args(parser: argparse.ArgumentParser):
     group.add_argument(
         '--model_generative_name',
         type=str,
-        default="Qwen/Qwen2.5-VL-3B-Instruct"  # 'Qwen/Qwen3-0.6B'
+        default="Qwen/Qwen3-0.6B"  # 'Qwen/Qwen3-0.6B'
     )
 
     group.add_argument(
         '--model_embedding_name',
         type=str,
-        default="Qwen/Qwen2.5-VL-3B-Instruct"  # 'Qwen/Qwen3-Embedding-0.6B'
+        default="Qwen/Qwen3-Embedding-0.6B"  # 'Qwen/Qwen3-Embedding-0.6B'
     )
     
     group.add_argument(
         '--tokenizer_name',
         type=str,
-        default='Qwen/Qwen2.5-VL-3B-Instruct',
+        default='Qwen/Qwen3-0.6B',
         help="Hugging Face tokenizer name."
     )
     
@@ -426,7 +426,7 @@ def add_llm_args(parser: argparse.ArgumentParser):
     group.add_argument(
         '--max_model_len',
         type=int,
-        default=1024
+        default=2048
     )
     
     group.add_argument(

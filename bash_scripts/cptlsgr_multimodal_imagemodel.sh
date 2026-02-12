@@ -22,6 +22,7 @@ cd $user_root_folder/LLM4CPTL/cptl_with_social_gr
 nohup python $python_script \
 	--dataset "${dataset[@]}" \
 	--save_text_descriptions \
+	--model_generative_name Qwen/Qwen2-VL-2B-Instruct \
 	--quantization bitsandbytes \
 	> ../logs/tmp_out.log \
 	2> ../logs/tmp_err.log &

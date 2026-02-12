@@ -30,6 +30,8 @@ nohup python $python_script \
   	--iters=$iters \
 	--time \
 	--metrics \
+	--use_kl_annealing \
+	--adapt_architecture_to_include_sequence_embedding \
 	> ../logs/tmp_out.log \
 	2> ../logs/tmp_err.log &
 	
