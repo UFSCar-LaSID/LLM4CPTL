@@ -398,7 +398,7 @@ def variation_of_clsgr_being_executed(args):
             if args.use_kl_annealing:
                 variation_of_clsgr_executed += "eKLAN"
             if args.adapt_architecture_to_include_sequence_embedding:
-                variation_of_clsgr_executed += "eLLM"
+                variation_of_clsgr_executed += "eModalLLM"
             if args.use_gradient_clipping:
                 variation_of_clsgr_executed += "eGC"
             if args.use_skip_connection:
@@ -416,6 +416,19 @@ def clean_text(text: str) -> str:
     text = re.sub(r'__(.*?)__', r'\1', text)
     text = re.sub(r'_(.*?)_', r'\1', text)
     text = re.sub('\s+', ' ', text)
+    
+    # --- A Feature de Limpeza de Sentença ---
+    # Explicação do Regex:
+    # ^          -> Começo da string
+    # .* -> Pega tudo (greedy), garantindo que pegamos até a ÚLTIMA pontuação
+    # (?<!\d)    -> Lookbehind: O caractere antes da pontuação NÃO pode ser um dígito
+    # [.!?]      -> Aceita ponto, exclamação ou interrogação
+    # (?:\s|$)   -> Seguido por um espaço ou pelo fim da linha
+
+    match = re.search(r'^(.*(?<!\d)[.!?](?:\s|$))', text, re.DOTALL)
+
+    if match:
+        text = match.group(1).strip()
     
     return text
 

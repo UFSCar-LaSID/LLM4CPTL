@@ -39,11 +39,11 @@ nohup python $python_script \
 pid=$!
 
 # Renomeia os logs tempor�rios com o PID real
-mv ../logs/tmp_out.log ../logs/cptlsgr_CLSGR_output_${pid}.log
-mv ../logs/tmp_err.log ../logs/cptlsgr_CLSGR_error_${pid}.log
+mv ../logs/tmp_out.log ../logs/cptlsgr_CLSGR_output.log
+mv ../logs/tmp_err.log ../logs/cptlsgr_CLSGR_error.log
 
 echo "Process PID:  $pid"
-echo "Logs: ../logs/cptlsgr_output_$pid.log e ../logs/cptlsgr_error_$pid.log"
+echo "Logs: ../logs/cptlsgr_output.log e ../logs/cptlsgr_error.log"
 
 # Desvincula o processo do shell
 disown $pid

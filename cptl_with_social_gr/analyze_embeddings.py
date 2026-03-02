@@ -5,102 +5,134 @@ import matplotlib.pyplot as plt
 from sklearn.decomposition import PCA
 from args import get_all_args
 
+from data.loader import data_dset
+from helper.utils import get_dset_path
+from data.trajectories import TrajectoryDataset
+
 
 def plot_embeddings(args):
     all_embeddings = []
-    labels = []
+    dataset_labels = []
+    scene_labels = []
 
     print("Carregando embeddings...")
 
-    # Garante que args.dataset seja iterável mesmo se for string única
-    datasets = args.dataset if isinstance(
-        args.dataset, list) else [args.dataset]
+    plotted_sequences = []
 
-    for ds_name in datasets:
-        # Busca o caminho no mapeamento
-        mapping = getattr(args, 'llm_sequences_embeddings_mapping', {})
-        ds_map = mapping.get(ds_name, None)
+    for dataset_name in args.dataset:
+        dset_path = get_dset_path(dataset_name, "train")
+        dset = data_dset(
+            args, dset_path,
+            dataset_name=dataset_name,
+            split_name="train"
+        )
 
-        if ds_map:
-            filepath = ds_map.get("train", None)
-        else:
-            print(f"Aviso: Mapeamento não encontrado para {ds_name}")
-            continue
+        for scene_name, scene_embedding in dset.sequences_embeddings.items():
 
-        print(f"Lendo: {filepath}")
+            scene_mapped = TrajectoryDataset.SEQUENCES_IMAGES_MAPPING[scene_name]
 
-        if filepath and os.path.exists(filepath):
-            # Carrega direto na CPU
-            emb = torch.load(filepath, map_location='cpu')
-        else:
-            print(f"Arquivo não encontrado ou caminho nulo: {filepath}")
-            continue
+            if scene_mapped in plotted_sequences:
+                print("Skipping already plotted sequence:", scene_mapped)
+                continue
 
-        if emb is None:
-            continue
+            plotted_sequences.append(scene_mapped)
 
-        # Itera sobre o dicionário {NomeCena: Tensor}
-        for scene_name, tensor in emb.items():
-            # 1. Garante CPU e converte para Numpy
-            emb_np = tensor.cpu().numpy()
+            emb_np = scene_embedding.cpu().numpy()
 
-            # 2. CORREÇÃO CRÍTICA: Se for 1D (vetor), vira 2D (matriz de 1 linha)
             if len(emb_np.shape) == 1:
                 emb_np = emb_np.reshape(1, -1)
 
             all_embeddings.append(emb_np)
 
-            # Ajusta labels baseado no número de amostras reais (linhas)
-            num_samples = emb_np.shape[0]
-            labels.extend([ds_name] * num_samples)
+            dataset_labels.extend([dataset_name] * emb_np.shape[0])
+            scene_labels.extend([scene_mapped] * emb_np.shape[0])
 
-    if all_embeddings:
-        # Concatena: Agora funciona porque todos os itens em all_embeddings são 2D
-        X = np.concatenate(all_embeddings, axis=0)
+    if not all_embeddings:
+        print("Nenhuma embedding encontrada!")
+        return
 
-        print(f"Executando PCA em matriz de shape {X.shape}...")
+    X = np.concatenate(all_embeddings, axis=0)
 
-        # Proteção para t-SNE/PCA não falhar se tiver poucos dados
-        n_comps = min(2, X.shape[0], X.shape[1])
-        pca = PCA(n_components=n_comps)
+    print(f"Executando PCA em matriz de shape {X.shape}...")
 
-        X_embedded = pca.fit_transform(X)
+    n_comps = min(2, X.shape[0], X.shape[1])
+    pca = PCA(n_components=n_comps)
+    X_embedded = pca.fit_transform(X)
 
-        var_exp = pca.explained_variance_ratio_.sum()
-        print(
-            f"Variância explicada pelos {n_comps} primeiros componentes: {var_exp:.2%}")
+    var_exp = pca.explained_variance_ratio_.sum()
+    print(
+        f"Variância explicada pelos {n_comps} primeiros componentes: {var_exp:.2%}")
 
-        plt.figure(figsize=(10, 8))
+    # =========================
+    # Mapas de cores e markers
+    # =========================
+    unique_datasets = np.unique(dataset_labels)
+    dataset_labels_arr = np.array(dataset_labels)
+    scene_labels_arr = np.array(scene_labels)
 
-        # Plotar cada dataset com uma cor
-        unique_labels = np.unique(labels)
-        for label in unique_labels:
-            mask = np.array(labels) == label
-            plt.scatter(X_embedded[mask, 0],
-                        X_embedded[mask, 1], label=label, alpha=0.6, s=10)
+    colors = plt.cm.tab10(np.linspace(0, 1, len(unique_datasets)))
+    dataset_color_map = dict(zip(unique_datasets, colors))
 
-        plt.title("PCA das Embeddings de Cena (LLM)")
-        plt.legend()
-        plt.grid(True, alpha=0.3)
+    markers = ['o', 's', '^', 'D', 'P', 'X', '*', 'v', '<', '>']
+    scene_marker_map = {}
 
-        # Garante que o diretório de plots existe
-        if not os.path.exists(args.plot_dir):
-            os.makedirs(args.plot_dir)
+    for dataset in unique_datasets:
+        scenes_in_dataset = np.unique(
+            scene_labels_arr[dataset_labels_arr == dataset])
+        for i, scene in enumerate(scenes_in_dataset):
+            scene_marker_map[scene] = markers[i % len(markers)]
 
-        save_path = os.path.join(args.plot_dir, "embeddings_pca.png")
-        plt.savefig(save_path)
-        print(f"Plot salvo em {save_path}")
-    else:
-        print("Nenhuma embedding encontrada! Verifique os caminhos no args.py ou yaml.")
+    # =========================
+    # Plot
+    # =========================
+    plt.figure(figsize=(12, 8))
+
+    for dataset in unique_datasets:
+        scenes_in_dataset = np.unique(
+            scene_labels_arr[dataset_labels_arr == dataset])
+        for scene in scenes_in_dataset:
+            mask = (dataset_labels_arr == dataset) & (
+                scene_labels_arr == scene)
+
+            if np.sum(mask) == 0:
+                continue
+
+            plt.scatter(
+                X_embedded[mask, 0],
+                X_embedded[mask, 1],
+                c=[dataset_color_map[dataset]],
+                marker=scene_marker_map[scene],
+                label=f"{dataset} - {scene}",
+                alpha=0.7,
+                s=60,
+                edgecolors='black',
+                linewidths=0.5
+            )
+
+    plt.title("PCA das Embeddings de Cena (LLM)")
+    plt.xlabel("Componente Principal 1")
+    plt.ylabel("Componente Principal 2")
+    plt.grid(True, alpha=0.3)
+
+    handles, labels = plt.gca().get_legend_handles_labels()
+    by_label = dict(zip(labels, handles))
+    plt.legend(by_label.values(), by_label.keys(),
+               bbox_to_anchor=(1.05, 1), loc='upper left', fontsize=9)
+
+    if not os.path.exists(args.plot_dir):
+        os.makedirs(args.plot_dir)
+
+    save_path = os.path.join(args.plot_dir, "embeddings_pca.png")
+    plt.savefig(save_path, dpi=300, bbox_inches="tight")
+
+    print(f"Plot salvo em {save_path}")
 
 
 if __name__ == "__main__":
-    # Carrega argumentos (incluindo o mapeamento de arquivos)
-    args = get_all_args(load_yaml=True)
+    args = get_all_args()
 
-    # Se plot_dir não estiver definido nos args, define um padrão
     if not hasattr(args, 'plot_dir') or args.plot_dir is None:
-        args.plot_dir = './plots'
+        args.plot_dir = "./plots"
 
     plot_embeddings(args)
     print("End!")

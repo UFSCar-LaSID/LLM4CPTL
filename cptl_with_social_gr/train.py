@@ -205,22 +205,15 @@ def train_cl(args,
     fde_matrix = np.zeros((total_number_of_tasks + 1, total_number_of_tasks))
     elpased_time_for_each_task = []
     completed_dataset_names = []
-    validation_loss_per_epoch = []
 
     # Evaluation of randomly initialized models (FWT):
     print("Evaluation of randomly initialized models (FWT)...")
     model.eval()
     for i in range(total_number_of_tasks):
-        emb_path = None
-        if args.adapt_architecture_to_include_sequence_embedding:
-            # Usa {} como default para permitir o encadeamento seguro
-            emb_path = args.llm_sequences_embeddings_mapping.get(test_order[i], {}).get("test", None)
-        
         path = utils.get_dset_path(test_order[i], "test")
         dset = data_dset(
             args,
             path,
-            sequences_embeddings_path=emb_path,
             dataset_name=test_order[i],
             split_name="test"
         )
@@ -305,7 +298,7 @@ def train_cl(args,
                     iters_to_use,
                     n_cycles=4,
                     ratio=0.5,
-                    shape="linear"
+                    shape="sigmoid"
                 )
 
                 # Atualiza o parâmetro dentro do modelo gerador
@@ -414,19 +407,6 @@ def train_cl(args,
 
                         print(
                             f"            Number of trajectories replayed: {x_rel_.shape[1]}")
-                        #print(
-                            #f"            Number of embeddings replayed: {sequence_embeddings_.shape[0]}")
-
-                    if args.replay_model == 'vrnn':
-                        replay_traj = previous_generator.sample(
-                            replay_out['obs_traj_rel'].to(device),
-                            replay_out['obs_traj'].to(device),
-                            replay_out['seq_start_end'].to(device)
-                        )
-
-                        x_rel_ = replay_traj.cuda()
-                        seq_start_end_ = seq_start_end
-                        sequence_embeddings_ = sequence_embeddings
 
                     if "CL_SGR" in variation_of_clsgr_executed:
                         previous_model.eval()
@@ -791,16 +771,10 @@ def train_cl(args,
         print(
             f"Updating the error matrices (for ADE and FDE) R after finished task {task}...")
         for i in range(total_number_of_tasks):
-            emb_path = None
-            if args.adapt_architecture_to_include_sequence_embedding:
-                # Usa {} como default para permitir o encadeamento seguro
-                emb_path = args.llm_sequences_embeddings_mapping.get(test_order[i], {}).get("test", None)
-            
             path = utils.get_dset_path(test_order[i], "test")
             dset = data_dset(
                 args,
                 path,
-                sequences_embeddings_path=emb_path,
                 dataset_name=test_order[i],
                 split_name="test"
             )

@@ -89,6 +89,12 @@ def add_dataset_args(parser: argparse.ArgumentParser):
     )
     
     group.add_argument(
+        '--min_ped',
+        type=int,
+        default=1
+    )
+    
+    group.add_argument(
         '--data-dir',
         type=str,
         default='./datasets',
@@ -247,13 +253,13 @@ def add_model_args(parser: argparse.ArgumentParser):
     
     group.add_argument(
         '--traj_lstm_hidden_size',
-        default=128,#32,
+        default=32,#32,
         type=int
     )
     
     group.add_argument(
         '--traj_lstm_output_size', 
-        default=128,#32,
+        default=32,#32,
         type=int
     )
 
@@ -314,7 +320,7 @@ def add_model_args(parser: argparse.ArgumentParser):
     group.add_argument(
         "--bottleneck_dim",
         type=int,
-        default=128,#32,
+        default=32,#32,
         help=""
     )
 
@@ -384,19 +390,19 @@ def add_llm_args(parser: argparse.ArgumentParser):
     group.add_argument(
         '--model_generative_name',
         type=str,
-        default="Qwen/Qwen3-0.6B"  # 'Qwen/Qwen3-0.6B'
+        default="Qwen/Qwen3-VL-2B-Instruct"
     )
 
     group.add_argument(
         '--model_embedding_name',
         type=str,
-        default="Qwen/Qwen3-Embedding-0.6B"  # 'Qwen/Qwen3-Embedding-0.6B'
+        default="Qwen/Qwen3-VL-Embedding-2B"
     )
     
     group.add_argument(
         '--tokenizer_name',
         type=str,
-        default='Qwen/Qwen3-0.6B',
+        default='Qwen/Qwen3-VL-2B-Instruct',
         help="Hugging Face tokenizer name."
     )
     

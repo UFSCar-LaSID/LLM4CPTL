@@ -4,19 +4,16 @@
 ###################################
 # Imports and packages
 ###################################
-
-import logging
 import os
 import math
-import json
-from IPython import embed
+import re
+from pathlib import Path
+from PIL import Image
 import numpy as np
+from types import MappingProxyType
 
 import torch
 from torch.utils.data import Dataset
-
-logger = logging.getLogger(__name__)
-
 
 class SceneBatch:
     def __init__(self, batch_data, device='cpu'):
@@ -75,8 +72,6 @@ class SceneBatch:
 
         if isinstance(self.sequence_embeddings, torch.Tensor):
             self.sequence_embeddings = self.sequence_embeddings.to(device)
-
-        # NOTA: Não movemos self.sequence_names pois é lista de strings!
 
         return self
 
@@ -225,6 +220,28 @@ class TrajectoryDataset(Dataset):
     a fixed length (obs_len + pred_len), and provides a __getitem__ method
     to retrieve all pedestrians present in a single sequence (scene).
     """
+    
+    SEQUENCES_IMAGES_MAPPING = MappingProxyType({
+        # ETH
+        'biwi_eth': 'biwi_eth',
+        'biwi_hotel': 'biwi_hotel',
+
+        # UCY
+        'students001': 'students',
+        'students003': 'students',
+        'uni_examples': 'students',
+        **{f'crowds_zara0{i}': 'crowds_zara' for i in range(1, 4)},
+
+        # inD
+        **{f'ind_pedestrian_0{i}_tracks': 'ind_pedestrian_tracks' for i in range(7)},
+
+        # INTERACTION
+        **{
+            f'interaction_SR_pedestrian_tracks_00{i}':
+            'interaction_SR_pedestrian_tracks'
+            for i in range(9)
+        },
+    })
 
     def __init__(
         self,
@@ -235,7 +252,6 @@ class TrajectoryDataset(Dataset):
         threshold=0.002,
         min_ped=1,
         delim="\t",
-        sequences_embeddings_path=None,
         dataset_name="",
         split_name="train"
     ):
@@ -263,32 +279,14 @@ class TrajectoryDataset(Dataset):
         self.t_embed_dim = 0
         self.dataset_name = dataset_name
 
-        self.sequences_embeddings_loaded = False
         self.sequences_embeddings_dimension = 0
 
         self.dataset_name = dataset_name
         self.split_name = split_name
-
-        if sequences_embeddings_path and os.path.exists(sequences_embeddings_path):
-            try:
-                print(
-                    f"Loading sequence embeddings from: {sequences_embeddings_path}")
-                self.sequences_embeddings = torch.load(
-                    sequences_embeddings_path, map_location='cpu')
-
-                if len(self.sequences_embeddings) > 0:
-                    self.sequences_embeddings_dimension = next(
-                        iter(self.sequences_embeddings.values())).shape[0]
-
-                self.sequences_embeddings_loaded = True
-
-            except Exception as e:
-                print(f"Error loading embeddings: {e}")
-                self.sequences_embeddings = None
-
-        else:
-            print(
-                f"INFO: No embeddings found at {sequences_embeddings_path}. Using zeros.")
+        
+        self.sequences_image = {}
+        self.sequences_description = {}
+        self.sequences_embeddings = {}
 
         all_files = os.listdir(self.data_dir)
         all_files = sorted([os.path.join(self.data_dir, _path)
@@ -305,10 +303,49 @@ class TrajectoryDataset(Dataset):
 
         # Iterate over each data file (e.g., 'eth.txt', 'hotel.txt')
         for path in all_files:
+            parent_dir = Path(path).parents[1]
+            
+            scene_name = os.path.splitext(os.path.basename(path))[0]
+            
+            scene_name_without_split = re.sub(r'_(train|val|test)', '', scene_name)
+            
+            try:
+                self.sequences_image[scene_name_without_split] = Image.open(os.path.join(
+                    parent_dir, TrajectoryDataset.SEQUENCES_IMAGES_MAPPING[scene_name_without_split] + "_reference.png")).convert("RGB")
+
+                if os.path.exists(os.path.join(parent_dir, TrajectoryDataset.SEQUENCES_IMAGES_MAPPING[scene_name_without_split] + "_description.txt")):
+                    with open(os.path.join(parent_dir, TrajectoryDataset.SEQUENCES_IMAGES_MAPPING[scene_name_without_split] + "_description.txt"), "r") as f:
+                        self.sequences_description[scene_name_without_split] = f.read(
+                        )
+                else:
+                    print(
+                        f"INFO: No descriptions found at {parent_dir}")
+                    self.sequences_description[scene_name_without_split] = ""
+
+                if os.path.exists(os.path.join(parent_dir, TrajectoryDataset.SEQUENCES_IMAGES_MAPPING[scene_name_without_split] + "_embedding.pt")):
+                    with open(os.path.join(parent_dir, TrajectoryDataset.SEQUENCES_IMAGES_MAPPING[scene_name_without_split] + "_embedding.pt"), "rb") as f:
+                        self.sequences_embeddings[scene_name_without_split] = torch.load(
+                            f, map_location='cpu')
+
+                    if len(self.sequences_embeddings) > 0:
+                        self.sequences_embeddings_dimension = next(
+                            iter(self.sequences_embeddings.values())).shape[0]
+
+                else:
+                    self.sequences_embeddings[scene_name_without_split] = None
+                    print(
+                        f"INFO: No embeddings found at {parent_dir}")
+
+            except Exception as e:
+                print(f"Exception {type(e).__name__}: {e}")
+                self.sequences_image[scene_name_without_split] = None
+                self.sequences_description[scene_name_without_split] = ""
+                self.sequences_embeddings[scene_name_without_split] = None
+            
             # Load the whole file into a numpy array
             data = read_file(path, delim)
 
-            scene_name = os.path.splitext(os.path.basename(path))[0]
+            
 
             # Get all unique frame IDs, sorted
             frames = np.unique(data[:, 0]).tolist()
@@ -394,7 +431,7 @@ class TrajectoryDataset(Dataset):
                     seq_list_rel.append(curr_seq_rel[:num_peds_considered])
 
                     sequences_name_list.extend(
-                        [scene_name] * num_peds_considered)
+                        [scene_name_without_split] * num_peds_considered)
 
         # After processing all files, store the total number of valid scenes
         self.num_seq = len(seq_list)
@@ -407,9 +444,6 @@ class TrajectoryDataset(Dataset):
         non_linear_ped = np.asarray(non_linear_ped)
 
         self.sequences_name_list = sequences_name_list
-
-        # Create global IDs for all pedestrians in this dataset:
-        total_num_peds_in_dataset = seq_list.shape[0]
 
         # Convert all data from Numpy to Torch Tensors
         # Split the data into observation (input) and prediction (target)
@@ -459,15 +493,12 @@ class TrajectoryDataset(Dataset):
 
         scene_embedding = None
         current_sequence_name = self.sequences_name_list[start]
-        if self.sequences_embeddings_loaded and current_sequence_name in self.sequences_embeddings:
-            scene_embedding = self.sequences_embeddings[current_sequence_name]
-
-        else:
-            if index == 0:
-                print(
-                    f"[DATASET WARNING] Embedding não encontrada para: {current_sequence_name}")
+        scene_embedding = self.sequences_embeddings.get(current_sequence_name, None)  
 
         if scene_embedding is None:
+            if index == 0:
+                print(f"[DATASET __getitem__ WARNING]: Embedding not found for sequence: {current_sequence_name}")
+                
             dim = self.sequences_embeddings_dimension if self.sequences_embeddings_dimension > 0 else 768
             scene_embedding = torch.zeros(dim)
 

@@ -247,23 +247,11 @@ def run(args, verbose=False):
 
         print("\nInitializing train dataset")
         for i, dataset_name in enumerate(train_order):
-            if args.adapt_architecture_to_include_sequence_embedding:
-                print(
-                    f"LLM-generated descriptions and embeddings will be loaded from {args.llm_sequences_embeddings_mapping.get(dataset_name).get('train')}")
-
             train_path = utils.get_dset_path(dataset_name, 'train')
-
-            embeddings_path = None
-            if args.adapt_architecture_to_include_sequence_embedding:
-                embeddings_map = args.llm_sequences_embeddings_mapping.get(dataset_name)
-                
-                embeddings_path = embeddings_map.get("train", None)
-                
             
             train_dset = data_dset(
                 args,
                 train_path,
-                sequences_embeddings_path=embeddings_path,
                 dataset_name=dataset_name,
                 split_name="train"
             )
@@ -276,18 +264,10 @@ def run(args, verbose=False):
         print("\nInitializing val dataset")
         for i, dataset_name in enumerate(val_order):
             val_path = utils.get_dset_path(dataset_name, "val")
-            
-            embeddings_path = None
-            if args.adapt_architecture_to_include_sequence_embedding:
-                embeddings_map = args.llm_sequences_embeddings_mapping.get(
-                    dataset_name)
-
-                embeddings_path = embeddings_map.get("val", None)
 
             val_dset = data_dset(
                 args,
                 val_path,
-                sequences_embeddings_path=embeddings_path,
                 dataset_name=dataset_name,
                 split_name="val"
             )
@@ -305,17 +285,9 @@ def run(args, verbose=False):
         for i, dataset_name in enumerate(test_order):
             test_path = utils.get_dset_path(dataset_name, "test")
 
-            embeddings_path = None
-            if args.adapt_architecture_to_include_sequence_embedding:
-                embeddings_map = args.llm_sequences_embeddings_mapping.get(
-                    dataset_name)
-
-                embeddings_path = embeddings_map.get("test", None)
-
             test_dset = data_dset(
                 args,
                 test_path,
-                sequences_embeddings_path=embeddings_path,
                 dataset_name=dataset_name,
                 split_name="test"
             )
@@ -846,7 +818,7 @@ def run(args, verbose=False):
 ###################################
 if __name__ == '__main__':
     # Load arguments
-    args = get_all_args(load_yaml=True)
+    args = get_all_args()
     # Set default values for certain arguments
     args = set_default_values(args)
     # Run experiment
