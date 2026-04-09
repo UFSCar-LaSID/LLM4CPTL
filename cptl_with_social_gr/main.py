@@ -208,11 +208,6 @@ def run(args, verbose=False):
         if args.pdf and not os.path.isdir(args.p_dir):
             os.mkdir(args.p_dir)
 
-        # ------------------------------------------------------------------------------------------------#
-        # ----------------#
-        # ------data------#
-        # ----------------#
-
         # Prepare data for chosen experiment
         if verbose:
             print("\nPreparing the data...")
@@ -289,11 +284,6 @@ def run(args, verbose=False):
 
             test_datasets.append(test_loader)
 
-        # --------------------------------------------------------------------------------------------------#
-        # --------------------#
-        # ----Model (LSTM)----#
-        # --------------------#
-
         # Define main model (i.e., lstm, if requested with feedback connections)
         print("\nDefining the main model...")
         if args.main_model == "lstm":
@@ -342,9 +332,6 @@ def run(args, verbose=False):
             if args.si:
                 model.epsilon = args.epsilon
 
-        # ---------------------------#
-        # ----CL-STRATEGY: REPLAY----#
-        # ---------------------------#
         # Boolean flag that indicates wheter a generator must be trained to generate the replay:
         train_gen = True if (args.replay == "generative") else False
 
@@ -417,11 +404,6 @@ def run(args, verbose=False):
             elif fake_generator.optim_type == "sgd":
                 fake_generator.optimizer = optim.SGD(fake_generator.optim_list)
 
-        # ------------------------------------------------------------------------------------------------------------------#
-        # --------------------#
-        # ------REPORTING-----#
-        # --------------------#
-
         # Print some model-characteristics on the screen
         if verbose:
             # -main model
@@ -447,11 +429,6 @@ def run(args, verbose=False):
             visdom = {'env': env_name, 'graph': graph_name}
         else:
             visdom = None
-
-        # ----------------------------------------------------------------------------------------------------------------#
-        # -----------------#
-        # ----CALLBACKS----#
-        # -----------------#  #
 
         # Callbacks for reporting and visualizing accuracy
         generator_loss_cbs = fake_generator_loss_cbs = [None]
@@ -517,11 +494,6 @@ def run(args, verbose=False):
                           )
         ]
 
-        # -----------------------------------------------------------------------------------------------------------------#
-        # ----------------#
-        # ----TRAINING----#
-        # ----------------#
-
         if verbose:
             print("\nTraining...")
 
@@ -541,7 +513,6 @@ def run(args, verbose=False):
                                                                     val_datasets,
                                                                     replay_model=args.replay,
                                                                     iters=args.iters,
-                                                                    batch_size=args.batch_size,
                                                                     generator=generator,
                                                                     fake_generator=fake_generator,
                                                                     gen_iters=args.g_iters,
@@ -561,19 +532,6 @@ def run(args, verbose=False):
         # Get total training duration in seconds and write it into a file
         if args.time:
             training_time = time.time() - start
-
-        # Save trained model to a file for future load and inference:
-        #model_checkpoint_filename = f"{args.r_dir}/{variation_of_clsgr_executed}_mainModelCheckpoint_taskFinal_{model.name}_{args.iters}_{args.batch_size}_{'-'.join(args.dataset)}.pth"
-
-        #utils.save_checkpoint(args=args, state=model.state_dict(
-        #), is_best=False, filename=model_checkpoint_filename)
-
-        #print(f"Final trained model (type: {type(model)}) saved to {model_checkpoint_filename}")
-
-        # ------------------------------------------------------------------------------------------------------------------#
-        # ------------------#
-        # ----EVALUATION----#
-        # ------------------#
 
         if verbose:
             print(
@@ -663,12 +621,6 @@ def run(args, verbose=False):
             metrics_dataframe.to_csv(metrics_filename, index=False)
 
             print(f"\nGenerated CSV file with metrics: {metrics_filename}")
-
-        # ------------------------------------------------------------------------------------------------------------------#
-
-        # -----------------#
-        # ----PLOTTING-----#
-        # -----------------#
 
         # If requested, generate pdf
         if args.pdf:

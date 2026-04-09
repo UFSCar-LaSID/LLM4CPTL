@@ -15,7 +15,7 @@ conda activate cptlsgr310_vllm
 # Reading, writing, and execution permission for the main script of this job:
 chmod 777 $python_script
 
-# Muda para o diretorio de trabalho:
+# Go to the main folder of the project:
 cd $user_root_folder/LLM4CPTL/cptl_with_social_gr
 
 # Main script execution:
@@ -26,17 +26,16 @@ nohup python $python_script \
 	> ../logs/tmp_out.log \
 	2> ../logs/tmp_err.log &
 
-# Captura o PID do processo Python
+# Captures the Python PID:
 pid=$!
 
-# Renomeia os logs temporarios com o PID real
+# Rename log files:
 mv ../logs/tmp_out.log ../logs/cptlsgr_mllm_image2text_output.log
 mv ../logs/tmp_err.log ../logs/cptlsgr_mllm_image2text_error.log
 
 echo "Process PID:  $pid"
 echo "Logs: ../logs/cptlsgr_mllm_image2text_output.log e ../logs/cptlsgr_mllm_image2text_error.log"
-# Desvincula o processo do shell
+
 disown $pid
 
-# Virtual environment:
 conda deactivate

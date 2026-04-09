@@ -4,8 +4,8 @@
 user_root_folder=/home/matheus
 python_script=$user_root_folder/LLM4CPTL/cptl_with_social_gr/main.py
 python_script_2=$user_root_folder/LLM4CPTL/cptl_with_social_gr/evaluate_batch_learning.py
-dataset_name_train=INTERACTION
-dataset_name_test=INTERACTION
+dataset_name_train=UCY
+dataset_name_test=UCY
 batch_size=32
 replay_batch_size=$batch_size
 iters=400
@@ -19,7 +19,7 @@ conda activate cptlsgr38
 # Reading, writing, and execution permission for the main script of this job:
 chmod 777 $python_script $python_script_2
 
-# Muda para o diretório de trabalho:
+# Go to worikng directory:
 cd $user_root_folder/LLM4CPTL/cptl_with_social_gr
 
 # Main script execution:
@@ -50,15 +50,14 @@ nohup python $python_script_2 \
 	>> ../logs/tmp_out.log \
 	2>> ../logs/tmp_err.log
 
-# Captura o PID do processo Python
+# Captures the Python PID:
 pid=$!
 
-# Renomeia os logs temporários com o PID real
+# Rename logs files:
 mv ../logs/tmp_out.log ../logs/cptlsgr_IL_${dataset_name_train}_${dataset_name_test}_output_${pid}.log
 mv ../logs/tmp_err.log ../logs/cptlsgr_IL_${dataset_name_train}_${dataset_name_test}_error_${pid}.log
 
 echo "Process PID:  $pid"
 echo "Logs: ../logs/cptlsgr_out_$pid.log e ../logs/cptlsgr_err_$pid.log"
 
-# Virtual environment:
 conda deactivate

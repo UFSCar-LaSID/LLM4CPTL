@@ -168,7 +168,6 @@ def train_cl(args,
              val_datasets,
              replay_model="none",
              iters=2,
-             batch_size=32,
              generator=None,
              fake_generator=None,
              gen_iters=0,
@@ -294,7 +293,6 @@ def train_cl(args,
         for epoch in range(1, iters_to_use+1):
             print(f"    Epoch {epoch}/{iters_to_use}")
             if args.use_kl_annealing and generator is not None:
-                # Calcula o novo beta para esta época
                 new_beta = utils.get_cyclical_beta(
                     current_step=epoch,
                     total_steps=iters_to_use,
@@ -305,7 +303,6 @@ def train_cl(args,
                     stop=0.01
                 )
 
-                # Atualiza o parâmetro dentro do modelo gerador
                 generator.lamda_vl = new_beta
 
                 print(f"    [KL Annealing] Epoch {epoch}: Beta (lamda_vl) updated to {generator.lamda_vl:.4f}")
@@ -335,8 +332,6 @@ def train_cl(args,
 
                 print(
                     f"            Number of trajectories in current task-specific batch: {batch.obs_traj.shape[1]}")
-                #print(
-                    #f"            Number of embeddings in current task-specific batch: {t_embeddings.shape[0]}")
 
                 # Collect/extract data from current batch:
                 x_rel = batch.obs_traj_rel
@@ -438,31 +433,24 @@ def train_cl(args,
                             # Entra em modo de avaliação para não interferir em gradientes
                             previous_generator.eval()
                             with torch.no_grad():
-                                # 1. O VAE avalia a qualidade das próprias trajetórias (Auto-reconstrução)
                                 recon_batch, _, _, _ = previous_generator(
                                     x_rel_,
                                     seq_start_end_,
                                     sequence_embedding=sequence_embeddings_
                                 )
 
-                                # 2. Calcula o Erro de Reconstrução por pedestre (MSE)
-                                # Shape original: [seq_len, batch_size, 2] -> sum(dim=2) -> sum(dim=0) = [batch_size]
                                 recon_error = ((x_rel_ - recon_batch)
                                             ** 2).sum(dim=2).sum(dim=0)
 
-                                # 3. Limiar dinâmico: Média + 1 Desvio Padrão
-                                # (unbiased=False previne retorno de NaN se o batch tiver tamanho 1 por algum motivo)
                                 threshold = recon_error.mean() + recon_error.std(unbiased=False)
 
                                 # 4. Máscara de aprovação: retém apenas quem tem erro menor ou igual ao limiar
                                 accepted_mask = recon_error <= threshold
 
-                                # Fallback de segurança: garantir que o batch nunca fique 100% vazio e quebre a rede
                                 if accepted_mask.sum() == 0:
                                     best_idx = torch.argmin(recon_error)
                                     accepted_mask[best_idx] = True
 
-                                # 5. Filtrar Tensors de Trajetória e Embedding
                                 x_rel_ = x_rel_[:, accepted_mask, :]
                                 x_ = x_[:, accepted_mask, :]
                                 sequence_embeddings_ = sequence_embeddings_[
@@ -472,7 +460,6 @@ def train_cl(args,
                                 if hist_logvar is not None:
                                     hist_logvar = hist_logvar[accepted_mask]
 
-                                # 6. Recalcular os agrupamentos das cenas (Social Pooling Constraints)
                                 new_seq_start_end = []
                                 curr_start = 0
                                 for start, end in seq_start_end_:
@@ -483,7 +470,6 @@ def train_cl(args,
                                             [curr_start, curr_start + num_accepted])
                                         curr_start += num_accepted
 
-                                # Substitui o tensor antigo pelo novo re-mapeado, mantendo no mesmo device
                                 seq_start_end_ = torch.tensor(
                                     new_seq_start_end,
                                     dtype=seq_start_end_.dtype,
@@ -623,11 +609,6 @@ def train_cl(args,
                         args, val_datasets[task-1])
                     ade_current, loss_val = utils.validate_cl(
                         args, model, val_dataset, epoch)
-                    # save val loss
-                    #val_loss_file = open("{}/{}_loss_val_{}_{}_{}_{}.txt".format(
-                        #args.r_dir, variation_of_clsgr_executed, args.iters, args.batch_size, args.replay, args.val_class), 'a')
-                    #val_loss_file.write('{}: {}\n'.format(epoch, loss_val))
-                    #val_loss_file.close()
                     loss_val_dict_main = {'loss_val': loss_val}
                     for val_loss_cb in val_loss_cbs:
                         if val_loss_cb is not None:
@@ -856,7 +837,6 @@ def train_cl(args,
                     sample_cb(generator, epoch, task=task)
 
         # ----> UPON FINISHING EACH TASK...
-        # --- Avaliacao Pos-Treino (Preencher linha da matriz) ---
         model.eval()
         print(
             f"Updating the error matrices (for ADE and FDE) R after finished task {task}...")
