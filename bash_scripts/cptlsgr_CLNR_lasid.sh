@@ -6,7 +6,7 @@ python_script=$user_root_folder/LLM4CPTL/cptl_with_social_gr/main.py
 dataset=(ETH UCY inD INTERACTION)
 batch_size=64
 replay_batch_size=$batch_size
-iters=200
+iters=400
 
 # Conda-specific commands:
 source ~/miniconda3/etc/profile.d/conda.sh
@@ -30,6 +30,7 @@ nohup python $python_script \
   	--iters=$iters \
 	--time \
 	--metrics \
+	--use_codecarbon \
 	> ../logs/tmp_out.log \
 	2> ../logs/tmp_err.log &
 

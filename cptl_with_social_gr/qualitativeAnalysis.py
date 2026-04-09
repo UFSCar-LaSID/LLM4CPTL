@@ -1,343 +1,411 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
 import os
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.lines import Line2D
 from sklearn.manifold import TSNE
 from sklearn.decomposition import PCA
-from data.trajectories import SceneBatch
+import umap  # Certifique-se de ter instalado: pip install umap-learn
+from pathlib import Path
+
 from args import get_all_args
 from data.loader import data_dset, data_loader
+from data.trajectories import SceneBatch
 from generative_model.vae_models_scratch import CVAE
-from helper.utils import get_dset_path
+from helper.utils import get_dset_path, relative_to_abs
 
-# Configuração para plots
+# Configuração estética para os gráficos
 plt.style.use('ggplot')
 
+# Cores fixas para cada dataset para garantir consistência visual em todos os gráficos
+DATASET_COLORS = {
+    'ETH': 'tab:red',
+    'UCY': 'tab:green',
+    'inD': 'tab:purple',
+    'INTERACTION': 'tab:blue'
+}
 
-def relative_to_abs(rel_traj, start_pos):
+
+def get_color(dataset_name):
+    """Retorna a cor fixa do dataset ou uma cor padrão cinza caso não esteja mapeado."""
+    return DATASET_COLORS.get(dataset_name, 'tab:gray')
+
+
+def stratified_subsample(mus_list, labels, flags, max_per_category=300):
     """
-    Converte trajetórias relativas (velocidades) para absolutas (metros).
+    Subamostragem estratificada para evitar overplotting.
+    Garante um limite máximo de pontos por Dataset E por Linearidade (Linear vs Não-Linear),
+    mantendo as classes minoritárias (curvas) visíveis no gráfico.
     """
-    displacement = torch.cumsum(rel_traj, dim=0)
-    start_pos_exp = start_pos.unsqueeze(0)
-    abs_traj = displacement + start_pos_exp
-    return abs_traj
+    mus_np = torch.cat(mus_list, dim=0).numpy()
+    labels_np = np.array(labels)
+    flags_np = np.array(flags)
+
+    selected_indices = []
+    unique_labels = sorted(list(set(labels)))
+
+    for label in unique_labels:
+        for flag_val in [0.0, 1.0]:  # 0.0 = Linear, 1.0 = Não-Linear
+            # Encontra todos os índices que batem com esse dataset e essa linearidade
+            idx = np.where((labels_np == label) & (flags_np == flag_val))[0]
+
+            # Se houver mais pontos do que o limite, sorteia aleatoriamente sem repetição
+            if len(idx) > max_per_category:
+                # Congela a semente para garantir reprodutibilidade
+                np.random.seed(42)
+                idx = np.random.choice(idx, max_per_category, replace=False)
+
+            selected_indices.extend(idx)
+
+    # Ordena os índices para manter a coerência dos tensores
+    selected_indices.sort()
+
+    # Remonta as listas apenas com os pontos sorteados
+    sampled_mus = [torch.tensor(mus_np[selected_indices])]
+    sampled_labels = labels_np[selected_indices].tolist()
+    sampled_flags = flags_np[selected_indices].tolist()
+
+    print(
+        f"    [SUBSAMPLING] Total de pontos reduzido de {len(labels)} para {len(sampled_labels)} (Manteve balanço de classes).")
+
+    return sampled_mus, sampled_labels, sampled_flags
 
 
-def analyze_latent_space_and_reconstruction(
-    model,
-    loaders_list,
-    args,
-    task_names=["ETH", "UCY", "inD", "INTERACTION"],
-    num_samples_visualize=5
-):
-    model.eval()
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    model.to(device)
-
-    all_mus = []
-    all_labels = []
-
-    print("\n" + "="*60)
-    print("INICIANDO ANÁLISE QUALITATIVA (COM SHAREX/SHAREY)")
-    print("="*60)
-
-    # 1. COLETA DE DADOS
-    with torch.no_grad():
-        for task_idx, loader in enumerate(loaders_list):
-            dataset_name = task_names[task_idx] if task_idx < len(
-                task_names) else f"Task {task_idx}"
-            print(f"-> Coletando latentes: {dataset_name}...")
-
-            task_mus = []
-
-            for batch_idx, batch in enumerate(loader):
-                batch = SceneBatch(batch, device=device)
-
-                x_rel = batch.obs_traj_rel
-
-                # Higienização
-                seq_start_end = batch.seq_start_end
-                if seq_start_end.dim() == 2 and seq_start_end.shape[1] > 2:
-                    seq_start_end = seq_start_end[:, :2]
-
-                embedding = getattr(batch, 'sequence_embeddings', None)
-
-                # Chamada do Modelo
-                try:
-                    if embedding is not None:
-                        _, mu, _, _ = model(
-                            x_rel, seq_start_end, sequence_embedding=embedding)
-                    else:
-                        _, mu, _, _ = model(x_rel, seq_start_end)
-                except Exception as e:
-                    print(f"[AVISO] Erro no Batch {batch_idx}: {e}")
-                    continue
-
-                task_mus.append(mu.cpu().numpy())
-
-                if batch_idx == 0:
-                    visualize_reconstruction_correct(
-                        model, batch, args,
-                        task_name=dataset_name,
-                        num_samples=num_samples_visualize,
-                        clean_seq_start_end=seq_start_end,
-                        embedding=embedding
-                    )
-
-            if len(task_mus) > 0:
-                task_mus = np.concatenate(task_mus, axis=0)
-                all_mus.append(task_mus)
-                all_labels.extend([dataset_name] * task_mus.shape[0])
-
-    if not all_mus:
-        print("ERRO: Nenhum dado coletado.")
-        return
-
-    X = np.concatenate(all_mus, axis=0)
-    labels = np.array(all_labels)
-
-    # 2. ANÁLISE ESTATÍSTICA
-    print("\n--- ESTATÍSTICAS REAIS DO ESPAÇO LATENTE ---")
-    mean_z = np.mean(X)
-    std_z = np.std(X)
-
-    print(f"Total de Amostras: {X.shape[0]}")
-    print(f"Média Global (Ideal ~0.0):   {mean_z:.6f}")
-    print(f"Desvio Padrão (Ideal ~1.0):  {std_z:.6f}")
-
-    if std_z < 0.05:
-        print("\n[ALERTA CRÍTICO] COLAPSO POSTERIOR DETECTADO!")
-    elif std_z > 5.0:
-        print("\n[ALERTA] EXPLOSÃO DE VARIÂNCIA DETECTADA!")
-    else:
-        print("\n[OK] Espaço latente saudável.")
-
-    # 3. VISUALIZAÇÃO
-    print("\nGerando gráficos de projeção...")
-    fig, axes = plt.subplots(1, 2, figsize=(20, 9))
-
-    unique_labels = np.unique(labels)
-    cmap = plt.get_cmap("tab10")
-
-    # --- PCA ---
-    pca = PCA(n_components=2)
-    X_pca = pca.fit_transform(X)
-
-    for i, label in enumerate(unique_labels):
-        indices = labels == label
-        axes[0].scatter(
-            X_pca[indices, 0], X_pca[indices, 1],
-            label=label, alpha=0.6, s=20, color=cmap(i % 10)
-        )
-
-    circle = plt.Circle((0, 0), 2.0, color='red', fill=False,
-                        linestyle='--', linewidth=2, label='Prior 2σ')
-    axes[0].add_patch(circle)
-    axes[0].set_title(f"PCA: Estrutura Global\n(Std: {std_z:.4f})")
-    axes[0].set_aspect('equal', adjustable='box')
-    axes[0].legend()
-
-    # --- t-SNE ---
-    print("Calculando t-SNE...")
-    limit = 3000
-    if X.shape[0] > limit:
-        idx_tsne = np.random.choice(X.shape[0], limit, replace=False)
-        X_tsne_in = X[idx_tsne]
-        l_tsne = labels[idx_tsne]
-    else:
-        X_tsne_in = X
-        l_tsne = labels
-
-    tsne = TSNE(n_components=2, perplexity=40, n_iter=1000,
-                random_state=42, init='pca', learning_rate=200.0)
-    X_tsne = tsne.fit_transform(X_tsne_in)
-
-    for i, label in enumerate(unique_labels):
-        mask = l_tsne == label
-        if np.any(mask):
-            axes[1].scatter(
-                X_tsne[mask, 0], X_tsne[mask, 1],
-                label=label, alpha=0.6, s=20, color=cmap(i % 10)
-            )
-
-    axes[1].set_title("t-SNE: Agrupamento")
-    axes[1].axis('off')
-    axes[1].legend()
-
-    try:
-        plt.tight_layout()
-    except RuntimeError:
-        print("Aviso: tight_layout ignorado devido a conflito de eixos.")
-
-    save_path = os.path.join(args.r_dir, 'latent_space_analysis_robust.png')
-    plt.savefig(save_path, dpi=150)
-    print(f"-> Gráfico salvo em: {save_path}")
-    plt.close()
-
-
-def visualize_reconstruction_correct(model, batch, args, task_name, num_samples=5, clean_seq_start_end=None, embedding=None):
+def plot_latent_space_reduction(mus, labels, non_linear_flags, method='tsne', save_dir=".", experiment=""):
     """
-    Gera comparação Observação Real vs Observação Reconstruída em metros.
+    Desenha a dispersão dos pedestres no espaço latente usando a técnica de redução especificada.
+    Usa cores fixas para os datasets e marcadores diferentes para trajetórias lineares vs não-lineares.
     """
-    obs_traj = batch.obs_traj
-    pred_traj_gt = batch.pred_traj
-    obs_traj_rel = batch.obs_traj_rel
+    mus_np = torch.cat(mus, dim=0).numpy()
 
-    seq_se = clean_seq_start_end if clean_seq_start_end is not None else batch.seq_start_end
+    if mus_np.shape[1] > 2:
+        print(
+            f"    [{method.upper()}] Reduzindo dimensionalidade do espaço latente de todos os pedestres...")
 
-    with torch.no_grad():
-        if embedding is not None:
-            recon_rel, _, _, _ = model(
-                obs_traj_rel, seq_se, sequence_embedding=embedding)
+        if method.lower() == 'tsne':
+            reducer = TSNE(n_components=2, perplexity=30,
+                           n_iter=1000, random_state=42)
+        elif method.lower() == 'pca':
+            reducer = PCA(n_components=2, random_state=42)
+        elif method.lower() == 'umap':
+            reducer = umap.UMAP(n_components=2, random_state=42)
         else:
-            recon_rel, _, _, _ = model(obs_traj_rel, seq_se)
+            raise ValueError(f"Método de redução '{method}' não suportado.")
 
-    start_pos = obs_traj[0, :, :]
-    recon_abs = relative_to_abs(recon_rel, start_pos)
+        mus_2d = reducer.fit_transform(mus_np)
+    else:
+        mus_2d = mus_np
 
-    obs_traj_np = obs_traj.cpu().numpy()
-    pred_traj_gt_np = pred_traj_gt.cpu().numpy()
-    recon_abs_np = recon_abs.cpu().numpy()
+    fig, ax = plt.subplots(figsize=(10, 8))
+    unique_labels = sorted(list(set(labels)))
 
-    total_peds = obs_traj.shape[1]
-    indices = np.random.choice(total_peds, min(
-        num_samples, total_peds), replace=False)
+    # Plotando os pontos separados por Dataset e por Linearidade
+    for label in unique_labels:
+        color = get_color(label)
 
-    # --- AQUI: SHAREX e SHAREY ATIVADOS ---
-    fig, axes = plt.subplots(
-        1, len(indices),
-        figsize=(4*len(indices), 4),
-        sharex=True,  # Compartilha eixo X
-        sharey=True   # Compartilha eixo Y
-    )
+        # Filtra os índices das trajetórias Lineares (flag == 0.0)
+        idx_linear = [j for j, (l, flag) in enumerate(
+            zip(labels, non_linear_flags)) if l == label and flag == 0.0]
+        if idx_linear:
+            ax.scatter(mus_2d[idx_linear, 0], mus_2d[idx_linear, 1],
+                       c=color, marker='o', alpha=0.6, s=15)
 
-    if len(indices) == 1:
+        # Filtra os índices das trajetórias Não-Lineares (flag == 1.0)
+        idx_nonlinear = [j for j, (l, flag) in enumerate(
+            zip(labels, non_linear_flags)) if l == label and flag == 1.0]
+        if idx_nonlinear:
+            ax.scatter(mus_2d[idx_nonlinear, 0], mus_2d[idx_nonlinear, 1],
+                       c=color, marker='^', alpha=0.6, s=15)
+
+    ax.set_title(f"Dispersão {method.upper()} dos Pedestres",
+                 fontsize=16, fontweight='bold')
+    ax.set_xlabel(f"{method.upper()} Dim 1")
+    ax.set_ylabel(f"{method.upper()} Dim 2")
+
+    # ---- CRIAÇÃO DA LEGENDA CUSTOMIZADA (Proxy Artists) ----
+    legend_elements = []
+    # Adiciona itens de cor (Datasets)
+    for label in unique_labels:
+        legend_elements.append(Line2D([0], [0], marker='s', color='w', label=label,
+                                      markerfacecolor=get_color(label), markersize=10))
+    # Adiciona um divisor visual invisível
+    legend_elements.append(Line2D([0], [0], marker='', color='w', label='---'))
+    # Adiciona itens de formato (Linearidade)
+    legend_elements.append(Line2D([0], [0], marker='o', color='w', label='Traj. Linear',
+                                  markerfacecolor='tab:gray', markersize=10))
+    legend_elements.append(Line2D([0], [0], marker='^', color='w', label='Traj. Não-Linear',
+                                  markerfacecolor='tab:gray', markersize=10))
+
+    ax.legend(handles=legend_elements,
+              bbox_to_anchor=(1.05, 1), loc='upper left')
+
+    plt.tight_layout()
+    os.makedirs(save_dir, exist_ok=True)
+    filepath = os.path.join(
+        save_dir, f'{experiment}_latent_space_{method.lower()}.png')
+    plt.savefig(filepath, dpi=300, bbox_inches='tight')
+    plt.close()
+    print(f"[PLOT] Gráfico {method.upper()} salvo em: {filepath}")
+
+
+def plot_combined_latent_space_reduction(mus, labels, non_linear_flags, save_dir=".", experiment=""):
+    """
+    Desenha a dispersão dos pedestres no espaço latente usando PCA, t-SNE e UMAP lado a lado.
+    """
+    mus_np = torch.cat(mus, dim=0).numpy()
+
+    fig, axes = plt.subplots(1, 3, figsize=(24, 8))
+    methods = ['pca', 'tsne', 'umap']
+    titles = ['PCA', 't-SNE', 'UMAP']
+
+    unique_labels = sorted(list(set(labels)))
+
+    for ax, method, title in zip(axes, methods, titles):
+        if mus_np.shape[1] > 2:
+            print(
+                f"    [{title}] Reduzindo dimensionalidade do espaço latente para o plot combinado...")
+            if method == 'tsne':
+                reducer = TSNE(n_components=2, perplexity=30,
+                               n_iter=1000, random_state=42)
+            elif method == 'pca':
+                reducer = PCA(n_components=2, random_state=42)
+            elif method == 'umap':
+                reducer = umap.UMAP(n_components=2, random_state=42)
+
+            mus_2d = reducer.fit_transform(mus_np)
+        else:
+            mus_2d = mus_np
+
+        for label in unique_labels:
+            color = get_color(label)
+
+            idx_linear = [j for j, (l, flag) in enumerate(
+                zip(labels, non_linear_flags)) if l == label and flag == 0.0]
+            if idx_linear:
+                ax.scatter(mus_2d[idx_linear, 0], mus_2d[idx_linear, 1],
+                           c=color, marker='o', alpha=0.6, s=15)
+
+            idx_nonlinear = [j for j, (l, flag) in enumerate(
+                zip(labels, non_linear_flags)) if l == label and flag == 1.0]
+            if idx_nonlinear:
+                ax.scatter(mus_2d[idx_nonlinear, 0], mus_2d[idx_nonlinear, 1],
+                           c=color, marker='^', alpha=0.6, s=15)
+
+        ax.set_title(f"Dispersão {title}", fontsize=16, fontweight='bold')
+        ax.set_xlabel(f"{title} Dim 1")
+        ax.set_ylabel(f"{title} Dim 2")
+        ax.grid(True, linestyle='--', alpha=0.5)
+
+        # Inserir a legenda apenas no último gráfico (UMAP)
+        if method == 'umap':
+            legend_elements = []
+            for label in unique_labels:
+                legend_elements.append(Line2D([0], [0], marker='s', color='w', label=label,
+                                              markerfacecolor=get_color(label), markersize=10))
+            legend_elements.append(
+                Line2D([0], [0], marker='', color='w', label='---'))
+            legend_elements.append(Line2D([0], [0], marker='o', color='w', label='Traj. Linear',
+                                          markerfacecolor='tab:gray', markersize=10))
+            legend_elements.append(Line2D([0], [0], marker='^', color='w', label='Traj. Não-Linear',
+                                          markerfacecolor='tab:gray', markersize=10))
+            ax.legend(handles=legend_elements,
+                      bbox_to_anchor=(1.05, 1), loc='upper left')
+
+    plt.tight_layout()
+    os.makedirs(save_dir, exist_ok=True)
+    filepath = os.path.join(
+        save_dir, f'{experiment}_latent_space_combined.png')
+
+    plt.savefig(filepath, dpi=300, bbox_inches='tight')
+    plt.close()
+    print(f"[PLOT] Gráfico combinado salvo em: {filepath}")
+
+
+def plot_reconstructions(obs_traj, recon_traj, task_name, num_samples=5, save_dir="."):
+    """
+    Desenha as trajetórias reais (azul) vs reconstruídas (vermelha).
+    """
+    num_samples = min(num_samples, obs_traj.shape[1])
+    fig, axes = plt.subplots(1, num_samples, figsize=(
+        4 * num_samples, 4), sharex=True, sharey=True)
+
+    if num_samples == 1:
         axes = [axes]
 
-    for i, idx in enumerate(indices):
-        ax = axes[i]
+    for i in range(num_samples):
+        real_x = obs_traj[:, i, 0].numpy()
+        real_y = obs_traj[:, i, 1].numpy()
+        recon_x = recon_traj[:, i, 0].numpy()
+        recon_y = recon_traj[:, i, 1].numpy()
 
-        # Obs Real
-        ax.plot(obs_traj_np[:, idx, 0], obs_traj_np[:, idx, 1],
-                'b-', linewidth=2.5, label='Obs Real', marker='.', markersize=6)
+        axes[i].plot(real_x, real_y, 'b-', label='Real',
+                     linewidth=2, marker='o', markersize=4)
+        axes[i].plot(recon_x, recon_y, 'r--', label='Reconstruída',
+                     linewidth=2, marker='x', markersize=4)
+        axes[i].scatter(real_x[0], real_y[0], color='green',
+                        s=100, label='Início', zorder=5)
 
-        # Pontos
-        ax.plot(obs_traj_np[0, idx, 0], obs_traj_np[0,
-                idx, 1], 'go', label='Início', zorder=5)
-        ax.plot(obs_traj_np[-1, idx, 0],
-                obs_traj_np[-1, idx, 1], 'bo', zorder=5)
+        axes[i].set_title(f"Amostra {i+1}", fontsize=10)
+        axes[i].grid(True, linestyle='--', alpha=0.5)
 
-        # Reconstrução
-        ax.plot(recon_abs_np[:, idx, 0], recon_abs_np[:, idx, 1],
-                'r-', linewidth=2, alpha=0.9, label='Reconstrução')
+    axes[0].legend()
+    fig.suptitle(
+        f"Reconstrução de Trajetórias: {task_name}", fontsize=14, fontweight='bold')
+    plt.tight_layout()
 
-        # Contexto Futuro
-        gt_x = np.concatenate(
-            ([obs_traj_np[-1, idx, 0]], pred_traj_gt_np[:, idx, 0]))
-        gt_y = np.concatenate(
-            ([obs_traj_np[-1, idx, 1]], pred_traj_gt_np[:, idx, 1]))
-        ax.plot(gt_x, gt_y, 'k--', linewidth=1, alpha=0.3, label='Futuro')
-
-        ax.set_title(f"Ped {idx}", fontsize=10)
-
-        # --- FIX: adjustable='box' impede o crash com sharex/sharey ---
-        ax.set_aspect('equal', adjustable='box')
-        ax.grid(True, linestyle=':', alpha=0.6)
-
-        if i == 0:
-            ax.legend(fontsize=8, loc='best')
-
-    plt.suptitle(
-        f"Reconstrução da Observação (VAE) - {task_name}", fontsize=14)
-
-    # Proteção extra para o layout
-    try:
-        plt.tight_layout()
-    except RuntimeError:
-        pass  # Ignora erro de layout se ocorrer
-
-    save_path = os.path.join(args.r_dir, f'traj_recon_{task_name}.png')
-    plt.savefig(save_path, dpi=100)
-    print(f"-> Trajetórias salvas em: {save_path}")
+    filepath = os.path.join(save_dir, f'traj_recon_{task_name}.png')
+    plt.savefig(filepath, dpi=300)
     plt.close()
+    print(f"[PLOT] Gráfico de reconstrução salvo em: {filepath}")
+
+
+def run_analysis(args):
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    print(f"Iniciando análise qualitativa no dispositivo: {device}")
+
+    experiments_to_analyze = [
+        "CL_SGR",
+        "CL_SGReKLAN",
+        "CL_SGReModalLLM",
+        "CL_SGReModalLLMBuffer",
+        "CL_SGReKLANeModalLLM",
+        "CL_SGReKLANeModalLLMBuffer",
+        "CL_SGReKLANeModalLLMBuffereUncFilter",
+    ]
+
+    for experiment in experiments_to_analyze:
+        if "modalllm" in experiment.lower():
+            args.adapt_architecture_to_include_sequence_embedding = True
+        else:
+            args.adapt_architecture_to_include_sequence_embedding = False
+
+        model = CVAE(
+            obs_len=args.obs_len,
+            pred_len=args.pred_len,
+            traj_lstm_input_size=args.traj_lstm_input_size,
+            traj_lstm_hidden_size=args.traj_lstm_hidden_size,
+            traj_lstm_output_size=args.traj_lstm_output_size,
+            dropout=args.dropout,
+            z_dim=args.z_dim,
+            embedding_dim=args.embedding_dim,
+            mlp_dim=args.mlp_dim,
+            bottleneck_dim=args.bottleneck_dim,
+            activation='relu',
+            batch_norm=True,
+            adapt_architecture_to_include_sequence_embedding=args.adapt_architecture_to_include_sequence_embedding,
+            sequence_embedding_dimension=args.dimensions,
+            sequence_embedding_compressed_dimension=args.sequence_embedding_compressed_dimension,
+            use_prior_adaptation=args.use_prior_adaptation,
+            use_dc_vampprior=args.use_dc_vampprior
+        ).to(device)
+
+        model_path = f"/home/matheus/LLM4CPTL/cptl_with_social_gr/results/{experiment}_generativeModelCheckpoint_task4_lstm_200_64_ETH-UCY-inD-INTERACTION.path"
+
+        variation_of_clsgr_executed = "-".join(
+            Path(model_path).stem.split("_")[0:2])
+
+        if os.path.exists(model_path):
+            print(f"Carregando pesos de: {model_path}")
+            model.load_state_dict(torch.load(model_path, map_location=device))
+        else:
+            print(
+                f"ERRO: Checkpoint não encontrado em {model_path}. Verifique se o treino terminou e salvou.")
+            return
+
+        model.eval()
+
+        task_names = args.dataset
+        task_paths = [get_dset_path(name, "test") for name in task_names]
+
+        loaders_list = []
+        valid_task_names = []
+
+        for name, path in zip(task_names, task_paths):
+            if os.path.exists(path):
+                dset = data_dset(
+                    args, path, dataset_name=name, split_name="test")
+                loader = data_loader(args, dset)
+                loaders_list.append(loader)
+                valid_task_names.append(name)
+            else:
+                print(f"AVISO: Dataset {name} não encontrado em {path}.")
+
+        # Variáveis globais para os plots
+        all_mus = []
+        all_labels = []
+        all_non_linear_flags = []  # Guarda a informação de linearidade
+
+        save_dir = args.p_dir
+        os.makedirs(save_dir, exist_ok=True)
+
+        print("\n" + "="*60)
+        print(f"EXTRAINDO FEATURES LATENTES E RECONSTRUÇÕES: {experiment}")
+        print("="*60)
+
+        with torch.no_grad():
+            for task_idx, (name, loader) in enumerate(zip(valid_task_names, loaders_list)):
+                print(f"Processando dataset: {name}")
+                plotted_reconstruction = False
+
+                for batch_data in loader:
+                    batch = SceneBatch(batch_data, device=device)
+
+                    x_rel = batch.obs_traj_rel
+                    obs_traj = batch.obs_traj
+                    seq_start_end = batch.seq_start_end
+                    seq_emb = batch.sequence_embeddings
+
+                    # Extrai a flag (1.0 = Não linear, 0.0 = Linear)
+                    non_linear_flag = batch.non_linear_ped.cpu().numpy()
+
+                    recon_batch_rel, mu, logvar, z = model(
+                        x_rel, seq_start_end, sequence_embedding=seq_emb)
+
+                    mu_cpu = mu.cpu()
+
+                    all_mus.append(mu_cpu)
+                    all_labels.extend([name] * mu_cpu.shape[0])
+                    all_non_linear_flags.extend(
+                        non_linear_flag)  # Acumula as flags
+
+                    if not plotted_reconstruction:
+                        start_pos = obs_traj[0].to(device)
+                        recon_traj_abs = relative_to_abs(
+                            recon_batch_rel, start_pos)
+                        plotted_reconstruction = True
+
+        print("\n" + "="*60)
+        print("GERANDO GRÁFICOS DO ESPAÇO LATENTE")
+        print("="*60)
+
+        PLOT_INDIVIDUAL = False
+        PLOT_COMBINED = True
+
+        if all_mus:
+            # ---> APLICA A SUBAMOSTRAGEM ESTRATIFICADA AQUI <---
+            # max_per_category=300 significa limite de pontos por Dataset e por Linearidade.
+            sampled_mus, sampled_labels, sampled_flags = stratified_subsample(
+                all_mus, all_labels, all_non_linear_flags, max_per_category=300
+            )
+
+            if PLOT_INDIVIDUAL:
+                plot_latent_space_reduction(sampled_mus, sampled_labels, sampled_flags,
+                                            method='tsne', save_dir=save_dir, experiment=variation_of_clsgr_executed)
+                plot_latent_space_reduction(sampled_mus, sampled_labels, sampled_flags,
+                                            method='pca', save_dir=save_dir, experiment=variation_of_clsgr_executed)
+                plot_latent_space_reduction(sampled_mus, sampled_labels, sampled_flags,
+                                            method='umap', save_dir=save_dir, experiment=variation_of_clsgr_executed)
+
+            if PLOT_COMBINED:
+                plot_combined_latent_space_reduction(
+                    sampled_mus, sampled_labels, sampled_flags, save_dir=save_dir, experiment=variation_of_clsgr_executed)
+
+    print("\nAnálise qualitativa concluída com sucesso!")
 
 
 if __name__ == "__main__":
-    args = get_all_args(load_yaml=True)
-
-    if not os.path.exists(args.r_dir):
-        os.makedirs(args.r_dir)
-
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    print(f"Usando dispositivo: {device}")
-
-    # AJUSTE SEU CAMINHO AQUI
-    model_path = "/home/matheus/LLM4CPTL/cptl_with_social_gr/results/CL_SGR_continual_learning_generative_4_generativeModelCheckpoint_['ETH', 'UCY', 'inD', 'INTERACTION']_64_72_False_current_False_None.path"
-
-    model = CVAE(obs_len=args.obs_len,
-                 pred_len=args.pred_len,
-                 traj_lstm_input_size=args.traj_lstm_input_size,
-                 traj_lstm_hidden_size=args.traj_lstm_hidden_size,
-                 traj_lstm_output_size=args.traj_lstm_output_size,
-                 dropout=args.dropout,
-                 z_dim=args.z_dim,
-                 embedding_dim=args.embedding_dim,
-                 mlp_dim=args.mlp_dim,
-                 bottleneck_dim=args.bottleneck_dim,
-                 activation='relu',
-                 batch_norm=True,
-                 adapt_architecture_to_include_sequence_embedding=args.adapt_architecture_to_include_sequence_embedding,
-                 sequence_embedding_dimension=args.dimensions,
-                 sequence_embedding_compressed_dimension=args.sequence_embedding_compressed_dimension,
-                 use_gradient_clipping=args.use_gradient_clipping,
-                 clip_gradient_max_norm=args.clip_gradient_max_norm,
-                 use_skip_connection=args.use_skip_connection).to(device)
-
-    if os.path.exists(model_path):
-        print(f"Carregando pesos de: {model_path}")
-        model.load_state_dict(torch.load(model_path, map_location=device))
-    else:
-        print(f"ERRO: Checkpoint não encontrado em {model_path}")
-
-    task_names = ["ETH", "UCY", "inD", "INTERACTION"]
-
-    task_paths = [
-        get_dset_path("ETH", "test"),
-        get_dset_path("UCY", "test"),
-        get_dset_path("inD", "test"),
-        get_dset_path("INTERACTION", "test")
-    ]
-
-    loaders_list = []
-    valid_task_names = []
-
-    for name, path in zip(task_names, task_paths):
-        if os.path.exists(path):
-            print(f"Carregando dataset: {name}")
-            emb_path = args.llm_sequences_embeddings_mapping.get(
-                name, {}).get("test", None)
-
-            dset = data_dset(
-                args,
-                path,
-                dataset_name=name,
-                sequences_embeddings_path=emb_path,
-                split_name="test"
-            )
-            loader = data_loader(args, dset)
-            loaders_list.append(loader)
-            valid_task_names.append(name)
-        else:
-            print(f"AVISO: {name} não encontrado em {path}. Pulando.")
-
-    if loaders_list:
-        analyze_latent_space_and_reconstruction(
-            model,
-            loaders_list,
-            args,
-            task_names=valid_task_names,
-            num_samples_visualize=5
-        )
-    else:
-        print("Nenhum dataset carregado.")
+    args = get_all_args()
+    run_analysis(args)

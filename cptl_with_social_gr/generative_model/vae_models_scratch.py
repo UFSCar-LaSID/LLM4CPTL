@@ -4,6 +4,7 @@
 # Imports and packages
 ###################################
 import torch
+import math
 import torch.nn as nn
 
 from helper.replayer import Replayer
@@ -42,6 +43,18 @@ def make_mlp(dim_list, activation='relu', batch_norm=True, dropout=0):
             layers.append(nn.Dropout(p=dropout))
     return nn.Sequential(*layers)
 
+
+def log_Normal_diag(x, mean, log_var, dim=None):
+    """
+    Calcula a log-probabilidade de uma Gaussiana multivariada diagonal.
+    Essencial para avaliar a densidade no DC-VampPrior empiricamente.
+    """
+    # 1e-5 para estabilidade numérica
+    log_normal = -0.5 * (log_var + math.log(2.0 * math.pi) +
+                         torch.pow(x - mean, 2) / (torch.exp(log_var) + 1e-5))
+    if dim is not None:
+        return log_normal.sum(dim=dim)
+    return log_normal
 
 class PoolHiddenNet(nn.Module):
     '''
@@ -262,8 +275,7 @@ class VAEDecoder(nn.Module):
         batch_norm: bool,
         adapt_architecture_to_include_sequence_embedding: bool,
         sequence_embedding_dimension: int,
-        sequence_embedding_compressed_dimension: int,
-        use_skip_connection: bool
+        sequence_embedding_compressed_dimension: int
     ):
         """ Init class.
 
@@ -277,7 +289,6 @@ class VAEDecoder(nn.Module):
         self.obs_len = obs_len
         self.adapt_architecture_to_include_sequence_embedding = adapt_architecture_to_include_sequence_embedding
         self.sequence_embedding_compressed_dimension = sequence_embedding_compressed_dimension
-        self.use_skip_connection = use_skip_connection
         
         from_z_input_dim = z_dim
 
@@ -295,12 +306,8 @@ class VAEDecoder(nn.Module):
         self.fromZ = fc_layer(from_z_input_dim, 128, batch_norm=None)
         self.fcD = fc_layer(128, traj_lstm_hidden_size, batch_norm=None)
 
-        if self.use_skip_connection:
-            # Se Skip for True: A entrada da LSTM é [Posição Relativa (2) + Vetor de Contexto (from_z_input_dim)]
-            lstm_input_dim = traj_lstm_input_size + from_z_input_dim
-        else:
-            # Se Skip for False: A entrada é apenas a Posição Relativa (2)
-            lstm_input_dim = traj_lstm_input_size
+        # Se Skip for False: A entrada é apenas a Posição Relativa (2)
+        lstm_input_dim = traj_lstm_input_size
             
         # Prediction LSTM (used for the trajectory rollout)
         # Note: input size is 2 (relative position), output size is traj_lstm_output_size (which is 2)
@@ -335,6 +342,7 @@ class VAEDecoder(nn.Module):
             if sequence_embedding is not None:
                 sequence_embedding_compressed = self.sequence_embedding_compression(sequence_embedding)
                 z_input = torch.cat([z, sequence_embedding_compressed], dim=1)
+                #initial_c0 = self.c0_linear(sequence_embedding_compressed)
             else:
                 batch_size = z.shape[0]
                 zeros = torch.zeros(
@@ -350,8 +358,8 @@ class VAEDecoder(nn.Module):
 
         # Initialize the cell state (C_0) to zero
         pred_lstm_h_t = hidden_features
-        pred_lstm_c_t = torch.zeros_like(
-            pred_lstm_h_t).to(pred_lstm_h_t.device)
+        
+        pred_lstm_c_t = torch.zeros_like(pred_lstm_h_t).to(pred_lstm_h_t.device)
         pred_traj_pos = []
 
         # Get the initial input position (first relative displacement)
@@ -366,12 +374,7 @@ class VAEDecoder(nn.Module):
 
         # Trajectory Rollout: loop for obs_len - 1 steps (since the first step is handled above)
         for i in range(self.obs_len-1):
-            if self.use_skip_connection:
-                # Concatena a posição anterior com o vetor de contexto ETERNO
-                lstm_input = torch.cat([output, z_input], dim=1)
-            else:
-                # Entrada padrão (apenas posição)
-                lstm_input = output
+            lstm_input = output
                 
             # LSTM step: current output position is the input to the next step
             pred_lstm_h_t, pred_lstm_c_t = self.pred_lstm_model(
@@ -411,9 +414,8 @@ class CVAE(Replayer):
                  adapt_architecture_to_include_sequence_embedding: bool,
                  sequence_embedding_dimension: int,
                  sequence_embedding_compressed_dimension: int,
-                 use_gradient_clipping: bool,
-                 clip_gradient_max_norm: float,
-                 use_skip_connection: bool
+                 use_prior_adaptation: bool,
+                 use_dc_vampprior: bool
                  ):
         """ Init class.
 
@@ -439,11 +441,8 @@ class CVAE(Replayer):
         self.average = "average"
         
         self.adapt_architecture_to_include_sequence_embedding = adapt_architecture_to_include_sequence_embedding
-        
-        self.use_gradient_clipping = use_gradient_clipping
-        self.clip_gradient_max_norm = clip_gradient_max_norm
-        
-        self.use_skip_connection = use_skip_connection
+        self.use_prior_adaptation = use_prior_adaptation
+        self.use_dc_vampprior = use_dc_vampprior
 
         # Initialize the VAE Encoder
         self.encoder = VAEEncoder(obs_len=obs_len,
@@ -472,10 +471,33 @@ class CVAE(Replayer):
                                   batch_norm=batch_norm,
                                   adapt_architecture_to_include_sequence_embedding=adapt_architecture_to_include_sequence_embedding,
                                   sequence_embedding_dimension=sequence_embedding_dimension,
-                                  sequence_embedding_compressed_dimension=sequence_embedding_compressed_dimension,
-                                  use_skip_connection=use_skip_connection
+                                  sequence_embedding_compressed_dimension=sequence_embedding_compressed_dimension
         )
+        
+        if self.use_dc_vampprior:
+            self.num_tasks_expanded = 0
+            # Inicializa a 1ª bateria de pseudo-entradas (para a Tarefa 1)
+            self.add_task_pseudo_inputs(num_pseudo_inputs=10)
 
+    def add_task_pseudo_inputs(self, num_pseudo_inputs=10):
+        """ Instancia um novo lote de pseudo-entradas e registra diretamente no modelo """
+        input_dim = self.traj_lstm_hidden_size + self.encoder.bottleneck_dim
+        new_pseudo_tensor = torch.FloatTensor(
+            num_pseudo_inputs, input_dim).normal_(0, 0.01).to(self._device())
+        new_pseudo = nn.Parameter(new_pseudo_tensor)
+
+        # Registra o parâmetro diretamente na classe (adeus ParameterList!)
+        self.register_parameter(
+            f"pseudo_input_{self.num_tasks_expanded}", new_pseudo)
+        self.num_tasks_expanded += 1
+
+    def get_all_pseudo_inputs(self):
+        """ Coleta todos os parâmetros de pseudo-entradas registrados """
+        pseudos = []
+        for i in range(self.num_tasks_expanded):
+            pseudos.append(getattr(self, f"pseudo_input_{i}"))
+        return torch.cat(pseudos, dim=0)
+        
     @property
     def name(self):
         suffix = "+LLM-based sequence embedding" if self.adapt_architecture_to_include_sequence_embedding else ""
@@ -554,7 +576,7 @@ class CVAE(Replayer):
 
         return (traj_recon, mu, logvar, z)
 
-    def sample(self, obs_traj_rel, obs_traj, replay_seq_start_end, sequence_embedding):
+    def sample(self, obs_traj_rel, obs_traj, replay_seq_start_end, sequence_embedding, mu_prior=None, logvar_prior=None):
         '''
         Generate [size] samples from the model (inference mode).
 
@@ -571,9 +593,38 @@ class CVAE(Replayer):
         self.eval()
 
         size = obs_traj_rel.shape[1]
+        
+        if self.use_dc_vampprior and getattr(self, "num_tasks_expanded", 0) > 0:
+            # AMOSTRAGEM DC-VAMPPRIOR
+            all_pseudo_inputs = self.get_all_pseudo_inputs()
+            total_K = all_pseudo_inputs.shape[0]
 
-        # Sample z from the prior distribution N(0, I)
-        z = torch.randn(size, self.z_dim).to(self._device())
+            seq_emb_proto = None
+            if sequence_embedding is not None:
+                seq_emb_proto = sequence_embedding[0].unsqueeze(
+                    0).repeat(total_K, 1)
+
+            with torch.no_grad():
+                mu_prior_vamp, logvar_prior_vamp, _ = self.encoder(
+                    all_pseudo_inputs, seq_emb_proto)
+
+            idx = torch.randint(0, total_K, (size,))
+            selected_mu = mu_prior_vamp[idx]
+            selected_logvar = logvar_prior_vamp[idx]
+
+            std = selected_logvar.mul(0.5).exp()
+            eps = torch.randn_like(std)
+            z = eps.mul(std).add(selected_mu)
+
+        else:
+            # Sample z from the prior distribution N(0, I)
+            z = torch.randn(size, self.z_dim).to(self._device())
+            
+            if self.use_prior_adaptation and mu_prior is not None and logvar_prior is not None:
+                mu_prior = mu_prior.to(self._device())
+                logvar_prior = logvar_prior.to(self._device())
+                std_prior = logvar_prior.mul(0.5).exp()
+                z = z.mul(std_prior).add(mu_prior)
         
         if sequence_embedding is not None:
             sequence_embedding = sequence_embedding.to(self._device())
@@ -617,7 +668,7 @@ class CVAE(Replayer):
             # Sum over the 2D position (dim=2) and sequence length (dim=1) -> loss per agent (dim=0)
             return reconL.sum(dim=2).sum(dim=1)
 
-    def calculate_variat_loss(self, mu, logvar):
+    def calculate_variat_loss(self, mu, logvar, z=None, sequence_embedding=None, mu_prior=None, logvar_prior=None):
         '''Calculate reconstruction loss for each element in the batch.
 
         INPUT:  - [mu]      <2D-tensor> by encoder predicted mean for [z]
@@ -625,16 +676,51 @@ class CVAE(Replayer):
 
         OUTPUT: - [variatL] <1D-tensor> of length [batch_size]
         '''
-        # KL-Divergence formula: -0.5 * sum(1 + logvar - mu^2 - exp(logvar))
-        variatL_raw = -0.5 * torch.sum(1 + logvar -
-                                   mu.pow(2) - logvar.exp(), dim=1)
+        if self.use_dc_vampprior and z is not None:
+            # 1. DC-VAMPPRIOR: Divergência empírica via LogSumExp
+            log_q_z = log_Normal_diag(z, mu, logvar, dim=1)
 
-        #min_variatL = torch.tensor(2.0).to(self._device())
+            if getattr(self, "num_tasks_expanded", 0) == 0:
+                zero_mu, zero_logvar = torch.zeros_like(
+                    mu), torch.zeros_like(logvar)
+                log_p_z = log_Normal_diag(z, zero_mu, zero_logvar, dim=1)
+            else:
+                all_pseudo_inputs = self.get_all_pseudo_inputs()
+                total_K = all_pseudo_inputs.shape[0]
 
-        #return torch.max(variatL_raw, min_variatL)
-        return variatL_raw
+                seq_emb_proto = None
+                if sequence_embedding is not None:
+                    seq_emb_proto = sequence_embedding[0].unsqueeze(
+                        0).repeat(total_K, 1)
 
-    def loss_function(self, recon_x, x, y_hat=None, y_target=None, scores=None, mu=None, logvar=None):
+                with torch.enable_grad():
+                    mu_prior_vamp, logvar_prior_vamp, _ = self.encoder(
+                        all_pseudo_inputs, seq_emb_proto)
+
+                z_expand = z.unsqueeze(1)
+                mu_prior_exp = mu_prior_vamp.unsqueeze(0)
+                logvar_prior_exp = logvar_prior_vamp.unsqueeze(0)
+
+                log_p_z_comps = log_Normal_diag(
+                    z_expand, mu_prior_exp, logvar_prior_exp, dim=2)
+                weight = math.log(1.0 / total_K)
+                log_p_z = torch.logsumexp(log_p_z_comps + weight, dim=1)
+
+            return log_q_z - log_p_z
+        
+        elif self.use_prior_adaptation and mu_prior is not None and logvar_prior is not None:
+            term1 = logvar_prior - logvar
+            term2 = (torch.exp(logvar) + (mu - mu_prior).pow(2)) / (torch.exp(logvar_prior) + 1e-5)
+            variatL_raw = 0.5 * torch.sum(term1 + term2 - 1, dim=1)
+            return variatL_raw
+        
+        else:
+            # KL-Divergence formula: -0.5 * sum(1 + logvar - mu^2 - exp(logvar))
+            variatL_raw = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp(), dim=1)
+        
+            return variatL_raw
+
+    def loss_function(self, recon_x, x, y_hat=None, y_target=None, scores=None, mu=None, logvar=None, z=None, sequence_embedding=None, mu_prior=None, logvar_prior=None):
         '''Calculate and return various losses that could be used for training and/or evaluating the model.
 
         INPUT:   - [recon_x]     <4D-tensor> reconstructed traj in same shape as [x]
@@ -654,8 +740,7 @@ class CVAE(Replayer):
         '''
 
         # Calculate reconstruction loss (L_Recon, L2 norm)
-        reconL = self.calculate_recon_loss(
-            x=x, x_recon=recon_x, mode=self.average)  # -> possibly average over traj
+        reconL = self.calculate_recon_loss(x=x, x_recon=recon_x, mode=self.average)
 
         # Average over the batch
         reconL = torch.mean(reconL)
@@ -663,7 +748,14 @@ class CVAE(Replayer):
         # Calculate variational loss (L_KL)
         if logvar is not None:
             # Calculate KL-Divergence
-            variatL = self.calculate_variat_loss(mu=mu, logvar=logvar)
+            variatL = self.calculate_variat_loss(
+                mu=mu,
+                logvar=logvar,
+                z=z,
+                sequence_embedding=sequence_embedding,
+                mu_prior=mu_prior,
+                logvar_prior=logvar_prior
+            )
 
             # Average over the batch
             variatL = torch.mean(variatL)
@@ -671,20 +763,10 @@ class CVAE(Replayer):
         else:
             variatL = torch.tensor(0., device=self._device())
 
-        # Prediction loss (L_pred) and Distillation loss (L_distil) are set to 0 in this VAE implementation
-        # The structure is left for potential CVAE extensions (e.g., classifying motion) or the Replayer parent class.
-        '''
-        ###----Prediction loss----###
-        if y_target is not None:
-            predL = F.cross_entropy(y_hat, y_target, reduction='mean')  #-> average over batch
-        else:
-            predL = torch.tensor(0., device=self._device())
-        '''
-
         # Return a tuple of the calculated losses
         return reconL, variatL
 
-    def train_a_batch(self, x_rel, y_rel, seq_start_end, sequence_embedding=None, x_=None, y_=None, seq_start_end_=None, sequence_embedding_=None, rnt=0.5):
+    def train_a_batch(self, x_rel, y_rel, seq_start_end, sequence_embedding=None, x_=None, y_=None, seq_start_end_=None, sequence_embedding_=None, rnt=0.5, mu_prior_r=None, logvar_prior_r=None):
         '''
         Train model for one batch ([x],[y]), possibly supplemented with replayed data ([x_],[y_]).
 
@@ -714,12 +796,23 @@ class CVAE(Replayer):
 
             # Run the model (Forward pass)
             recon_batch, mu, logvar, z = self(
-                x_rel, seq_start_end, sequence_embedding=sequence_embedding)
+                x_rel,
+                seq_start_end,
+                sequence_embedding=sequence_embedding
+            )
 
             # Calculate VAE losses
             print("                Calculating losses (reconstruction and variational) for the CURRENT batch using 'CVAE.loss_function' method")
             reconL, variatL = self.loss_function(
-                recon_x=recon_batch, x=x_rel, y_hat=None, y_target=None, mu=mu, logvar=logvar)
+                recon_x=recon_batch,
+                x=x_rel,
+                y_hat=None,
+                y_target=None,
+                mu=mu,
+                logvar=logvar,
+                z=z,
+                sequence_embedding=sequence_embedding
+            )
 
             # Weigh current losses: L_current = lambda_rcl * L_Recon + lambda_vl * L_KL
             loss_cur = self.lamda_rcl * reconL + self.lamda_vl * variatL
@@ -743,7 +836,10 @@ class CVAE(Replayer):
             if not isinstance(x_, list):
                 x_temp_ = x_
                 recon_batch, mu, logvar, z = self(
-                    x_temp_, seq_start_end_, sequence_embedding=sequence_embedding_)
+                    x_temp_,
+                    seq_start_end_,
+                    sequence_embedding=sequence_embedding_
+                )
 
             # Loop to perform each replay
             for replay_id in range(n_replays):
@@ -759,11 +855,22 @@ class CVAE(Replayer):
                     
                     recon_batch, mu, logvar, z = self(
                         x_temp_, s_temp_, sequence_embedding=emb_temp_)
-
+                else:
+                    x_temp_ = x_
+                    emb_temp_ = sequence_embedding_
+                    
                 # Calculate all losses
                 print("                Calculating losses (reconstruction_r and variational_r) for the REPLAYED batch using 'CVAE.loss_function' method")
+                
                 reconL_r[replay_id], variatL_r[replay_id] = self.loss_function(
-                    recon_x=recon_batch, x=x_temp_, mu=mu, logvar=logvar
+                    recon_x=recon_batch,
+                    x=x_temp_,
+                    mu=mu,
+                    logvar=logvar,
+                    mu_prior=mu_prior_r,         # <--- ÂNCORA BooVAE
+                    logvar_prior=logvar_prior_r,  # <--- ÂNCORA BooVAE
+                    z=z,
+                    sequence_embedding=emb_temp_
                 )
 
                 # Weigh losses as requested
@@ -785,12 +892,6 @@ class CVAE(Replayer):
 
         # Backpropagate errors
         loss_total.backward()
-        
-        if self.use_gradient_clipping:
-            torch.nn.utils.clip_grad_norm_(
-                self.parameters(),
-                max_norm=self.clip_gradient_max_norm
-            )
 
         # Take optimization-step
         self.optimizer.step()
@@ -831,7 +932,9 @@ class CVAE(Replayer):
                     y_hat=None, 
                     y_target=None, 
                     mu=mu, 
-                    logvar=logvar
+                    logvar=logvar,
+                    z=z,
+                    sequence_embedding=sequence_embedding
                 )
 
                 # Calcular perda total ponderada (usando os mesmos pesos do treino)

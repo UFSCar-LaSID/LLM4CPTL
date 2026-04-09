@@ -3,6 +3,7 @@ import os
 import re
 import argparse
 import glob
+import tikzplotly
 import pandas as pd
 import numpy as np
 
@@ -27,19 +28,14 @@ METRIC_LABELS = {
     "fde": "FDE",
     "method": "Method",
     "Loss_Total": "Train: total",
-    "ReconL": "Train: reconstruction (current)",
-    "VariatL": "Train: variational (current)",
-    "ReconL_R": "Train: reconstruction (replay)",
-    "VariatL_R": "Train: variational (replay)",
-    "Pred_Traj": "Train: predicted trajectory (current)",
+    "Pred_Traj": "Train: predicted trajectory",
     "Pred_Traj_R": "Train: predicted trajectory (replay)",
     "Loss_Validation": "Validation",
-    "ReconL_Validation": "Validation: reconstruction (current)",
-    "VariatL_Validation": "Validation: variational (current)",
-    "Loss_Total_Validation": "Validation: total (current)",
-    "ReconL_Validation_Task1": "Validation: reconstruction (task 1)",
-    "ReconL_Validation_Task2": "Validation: reconstruction (task 2)",
-    "ReconL_Validation_Task3": "Validation: reconstruction (task 3)",
+    "emissions": "CO₂ Emissions",
+    "energy_consumed": "Total Energy",
+    "cpu_energy": "CPU Energy",
+    "gpu_energy": "GPU Energy",
+    "ram_energy": "RAM Energy",
 }
 
 # =========================================================
@@ -51,18 +47,13 @@ def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--results_dir", type=str, default="./results")
     parser.add_argument(
-        "--hyperparameters",
-        nargs="+",
-        default=["batch_size", "iters"],
+        "--hyperparameters", nargs="+", default=["batch_size", "iters"],
         choices=["batch_size", "iters", "learning_rate"],
     )
     parser.add_argument(
-        "--plots",
-        nargs="+",
+        "--plots", nargs="+",
         default=["ape", "bwt", "fwt", "ade", "fde",
-                 "duration", "time_task", "losses"],
-        choices=["ape", "bwt", "fwt", "ade", "fde",
-                 "duration", "time_task", "losses"],
+                 "duration", "time_task", "losses", "emissions"],
     )
     return parser.parse_args()
 
@@ -83,14 +74,37 @@ def load_metrics_dfs(directory, pattern="metrics"):
     return dfs
 
 
-def load_evolution_matrices(directory, filters, selected_methods):
-    """
-    Carrega matrizes completas de ADE e FDE para os métodos selecionados.
-    Retorna: {method: {'ade': matrix, 'fde': matrix}}
-    """
-    evolution_data = {}
+def load_emissions_dfs(directory, filters, selected_methods):
+    dfs = []
+    files = glob.glob(os.path.join(directory, "*emissions*.csv"))
 
-    # Filtra métodos excluindo IL (conforme pedido para os gráficos de evolução)
+    def file_matches_filters(fname, filters_dict):
+        for k, v in filters_dict.items():
+            if str(v) not in fname:
+                return False
+        return True
+
+    for m in selected_methods:
+        if m == "IL_mean":
+            continue
+        for f in files:
+            fname = os.path.basename(f)
+            if m in fname and file_matches_filters(fname, filters):
+                try:
+                    df = pd.read_csv(f)
+                    df['method'] = m
+                    dfs.append(df)
+                    break
+                except Exception as e:
+                    print(f"Erro ao ler arquivo de emissão {f}: {e}")
+
+    if dfs:
+        return pd.concat(dfs, ignore_index=True)
+    return pd.DataFrame()
+
+
+def load_evolution_matrices(directory, filters, selected_methods):
+    evolution_data = {}
     target_methods = [m for m in selected_methods if m != "IL"]
 
     def file_matches_filters(fname, filters_dict):
@@ -109,26 +123,15 @@ def load_evolution_matrices(directory, filters, selected_methods):
                 return None
 
     for m in target_methods:
-        # Padrões de busca para o método específico
-        # Assume que o nome do método está no nome do arquivo
-        ade_files = glob.glob(os.path.join(
-            directory, f"*{m}*ADE_matrix_*.txt"))
-        fde_files = glob.glob(os.path.join(
-            directory, f"*{m}*FDE_matrix_*.txt"))
-
-        # Filtra pelos hiperparâmetros
-        ade_files = [f for f in ade_files if file_matches_filters(
-            os.path.basename(f), filters)]
-        fde_files = [f for f in fde_files if file_matches_filters(
-            os.path.basename(f), filters)]
+        ade_files = [f for f in glob.glob(os.path.join(
+            directory, f"*{m}*ADE_matrix_*.txt")) if file_matches_filters(os.path.basename(f), filters)]
+        fde_files = [f for f in glob.glob(os.path.join(
+            directory, f"*{m}*FDE_matrix_*.txt")) if file_matches_filters(os.path.basename(f), filters)]
 
         if ade_files or fde_files:
             evolution_data[m] = {'ade': None, 'fde': None}
-
             if ade_files:
-                # Pega o primeiro match (assumindo unicidade pelos filtros)
                 evolution_data[m]['ade'] = load_matrix_file(ade_files[0])
-
             if fde_files:
                 evolution_data[m]['fde'] = load_matrix_file(fde_files[0])
 
@@ -201,11 +204,16 @@ def extract_unique_values(dfs, columns):
     return out
 
 
+def extract_available_methods(dfs):
+    methods = set()
+    for df in dfs:
+        methods.update(df["method"].unique())
+    return sorted(list(methods))
+
+
 def extract_available_tasks(dfs):
     tasks = set()
     pattern = re.compile(r"task[_]?(\d+)")
-    if not dfs:
-        return [1]
     for df in dfs:
         for col in df.columns:
             match = pattern.search(col)
@@ -230,14 +238,23 @@ def plot_bar_chart(df, y_cols, title, ylabel):
     df_grouped = df.groupby("method")[y_cols].mean().reset_index()
     df_grouped["display_method"] = df_grouped["method"].apply(
         format_method_name)
-    for c in y_cols:
-        if c not in df_grouped.columns:
-            continue
-        label = METRIC_LABELS.get(c, c)
-        fig.add_trace(go.Bar(x=df_grouped["display_method"], y=df_grouped[c], name=label, text=df_grouped[c].apply(
-            lambda x: f'{x:.3f}'), textposition='auto'))
-    fig.update_layout(title=title, yaxis_title=ylabel, xaxis_title="Method",
-                      barmode='group', legend_itemclick="toggle", legend_itemdoubleclick="toggleothers")
+    actual_cols = [c for c in y_cols if c in df_grouped.columns]
+    x_labels = [METRIC_LABELS.get(c, c) for c in actual_cols]
+
+    for _, row in df_grouped.iterrows():
+        method_name = row["display_method"]
+        y_values = [row[c] for c in actual_cols]
+        text_values = [f'{v:.5f}' if (pd.notna(v) and v < 0.1 and v != 0) else (
+            f'{v:.3f}' if pd.notna(v) else '') for v in y_values]
+
+        fig.add_trace(go.Bar(
+            name=method_name, x=x_labels, y=y_values, text=text_values, textposition='auto',
+            hovertemplate="<b>Method:</b> " + method_name +
+            "<br><b>%{x}:</b> %{y}<extra></extra>"
+        ))
+
+    fig.update_layout(title=title, yaxis_title=ylabel, barmode='group',
+                      legend_title_text="Method (Experiment)", legend_itemclick="toggle")
     return fig
 
 
@@ -246,13 +263,10 @@ def plot_per_task_metric(df, metric_prefix, title, ylabel, y_range=None):
     if df.empty:
         return fig
     methods = df["method"].unique()
-    if metric_prefix == "time":
-        task_pattern = re.compile(r"task[_]?(\d+)")
-    else:
-        task_pattern = re.compile(
-            rf"{metric_prefix}_task(\d+)_after_training_in_all_tasks")
-    tasks = set()
-    col_map = {}
+    task_pattern = re.compile(r"task[_]?(\d+)") if metric_prefix == "time" else re.compile(
+        rf"{metric_prefix}_task(\d+)_after_training_in_all_tasks")
+    tasks, col_map = set(), {}
+
     for col in df.columns:
         match = task_pattern.search(col)
         if match:
@@ -262,140 +276,114 @@ def plot_per_task_metric(df, metric_prefix, title, ylabel, y_range=None):
             tasks.add(tid)
             if metric_prefix in col or (metric_prefix == "time" and "time" in col):
                 col_map[tid] = col
+
     sorted_tasks = sorted(list(tasks))
     if not sorted_tasks:
-        fig.update_layout(title=f"{title} (Nenhuma coluna encontrada)")
         return fig
+
     for method in methods:
         row = df[df["method"] == method]
         if row.empty:
             continue
         row_vals = row.mean(numeric_only=True)
-        y_values = []
-        for t in sorted_tasks:
-            c = col_map.get(t)
-            val = row_vals[c] if c in row_vals else np.nan
-            y_values.append(val)
+        y_values = [row_vals[col_map.get(t)] if col_map.get(
+            t) in row_vals else np.nan for t in sorted_tasks]
         fig.add_trace(go.Scatter(x=sorted_tasks, y=y_values,
                       mode='lines+markers', name=format_method_name(method)))
-    dataset_text = ""
-    if "train_dataset" in df.columns:
-        try:
-            dset = df["train_dataset"].iloc[0]
-            dataset_text = f"<br><sup>Tasks order: {dset}</sup>"
-        except:
-            pass
-    layout_args = dict(title=title + dataset_text, xaxis_title="Tasks", yaxis_title=ylabel, xaxis=dict(tickmode='array',
-                       tickvals=sorted_tasks), hovermode="x unified", legend_itemclick="toggle", legend_itemdoubleclick="toggleothers")
+
+    layout_args = dict(title=title, xaxis_title="Tasks", yaxis_title=ylabel, xaxis=dict(
+        tickmode='array', tickvals=sorted_tasks), hovermode="x unified")
     if y_range:
         layout_args['yaxis'] = dict(range=y_range)
     fig.update_layout(**layout_args)
     return fig
 
 
-def plot_method_evolution(method_name, ade_matrix, fde_matrix):
+def plot_evolution_per_task(evolution_data, task_idx):
     """
-    Cria subplots (2 colunas) para a evolução de ADE e FDE.
-    Cada linha no gráfico representa uma coluna da matriz (Performance em uma Tarefa específica).
-    O eixo X representa o estágio do treino (Linhas da matriz: 0=Random, 1=After T1...).
+    Gera um plot com 2 subplots (ADE e FDE) específico para uma Tarefa,
+    contendo a evolução de todos os métodos fornecidos.
     """
-    fig = make_subplots(
-        rows=1, cols=2,
-        subplot_titles=("ADE Evolution", "FDE Evolution"),
-        shared_xaxes=True, shared_yaxes=True,
-        horizontal_spacing=0.05
-    )
+    valid_methods = [m for m in evolution_data if evolution_data[m]
+                     ['ade'] is not None or evolution_data[m]['fde'] is not None]
+    if not valid_methods:
+        return None
 
-    matrices = [('ADE', ade_matrix), ('FDE', fde_matrix)]
-    colors = pc.qualitative.Plotly  # Paleta de cores para distinguir as tarefas
+    fig = make_subplots(rows=1, cols=2, subplot_titles=(
+        f"ADE Evolution (Tested on Task {task_idx})", f"FDE Evolution (Tested on Task {task_idx})"), shared_xaxes=True, shared_yaxes=True)
+    colors = pc.qualitative.Plotly
+    methods = sorted(valid_methods)
+    method_colors = {m: colors[idx % len(colors)]
+                     for idx, m in enumerate(methods)}
 
-    for i, (metric, matrix) in enumerate(matrices):
-        if matrix is None:
-            continue
+    has_data_plotted = False
 
+    for i, metric in enumerate(['ade', 'fde']):
         col_idx = i + 1
-        num_rows, num_cols = matrix.shape
+        for m_name in methods:
+            matrix = evolution_data[m_name][metric]
+            if matrix is None:
+                continue
 
-        # Eixo X: Estágios de treino (0 = Baseline, 1..N = Após treinar Task N)
-        # Assumindo que a matriz tem formato (N_tasks + 1, N_tasks)
-        x_stages = list(range(num_rows))
-        x_labels = ["Random"] + [f"After T{t+1}" for t in range(num_rows-1)]
+            num_rows, num_cols = matrix.shape
+            actual_task_index = task_idx - 1  # Ajuste de índice 0-based
 
-        for task_idx in range(num_cols):
-            # Extrai a coluna correspondente à tarefa task_idx
-            y_values = matrix[:, task_idx]
+            if actual_task_index >= num_cols:
+                continue
+
+            x_stages = list(range(num_rows))
+            x_labels = ["Random"] + \
+                [f"After T{t+1}" for t in range(num_rows-1)]
+            y_values = matrix[:, actual_task_index]
+
+            show_leg = (i == 0)  # Mostra legenda apenas no primeiro subplot
 
             fig.add_trace(go.Scatter(
-                x=x_stages,
-                y=y_values,
-                mode='lines+markers',
-                name=f"Test on Task {task_idx+1}",
-                line=dict(color=colors[task_idx % len(colors)]),
-                legendgroup=f"Task {task_idx+1}",
-                # Mostra legenda apenas no primeiro subplot para não duplicar
-                showlegend=(i == 0)
+                x=x_stages, y=y_values, mode='lines+markers', name=format_method_name(m_name),
+                legendgroup=m_name, line=dict(color=method_colors[m_name], width=2), showlegend=show_leg,
+                hovertemplate=f"<b>{format_method_name(m_name)}</b><br>Stage: %{{x}}<br>Error: %{{y:.4f}}<extra></extra>"
             ), row=1, col=col_idx)
 
-    fig.update_layout(
-        title_text=f"Performance Evolution: {format_method_name(method_name)}",
-        height=500,
-        hovermode="x unified",
-        xaxis=dict(tickmode='array', tickvals=x_stages,
-                   ticktext=x_labels, title="Training Stage"),
-        xaxis2=dict(tickmode='array', tickvals=x_stages,
-                    ticktext=x_labels, title="Training Stage"),
-        yaxis=dict(title="Error (Meters)"),
-    )
-    return fig
+            has_data_plotted = True
+
+            if i == 0:
+                fig.update_xaxes(tickmode='array', tickvals=x_stages, ticktext=x_labels,
+                                 title_text="Training Stage", row=1, col=col_idx)
+            else:
+                fig.update_xaxes(tickmode='array', tickvals=x_stages, ticktext=x_labels,
+                                 title_text="Training Stage", row=1, col=col_idx)
+
+    fig.update_yaxes(title_text="Error (Meters)", row=1, col=1)
+    fig.update_layout(height=450, hovermode="x unified",
+                      legend_title_text="Methods")
+
+    return fig if has_data_plotted else None
 
 
-def plot_losses_subplots(loss_data, selected_tasks):
+def plot_main_losses(loss_data, selected_tasks):
     valid_methods = [m for m, data in loss_data.items()
                      if data['main'] is not None]
     if not valid_methods:
         return None
     valid_methods.sort(key=lambda x: format_method_name(x))
+
     rows = len(valid_methods)
-    cols = 2
-    titles = []
-    for m in valid_methods:
-        display_name = format_method_name(m)
-        titles.append(f"{display_name}: Main model")
-        vae_data = loss_data[m]['vae']
-        if isinstance(vae_data, pd.DataFrame):
-            titles.append(f"{display_name}: Social-GR (VAE)")
-        else:
-            titles.append("")
-    fig = make_subplots(rows=rows, cols=cols, subplot_titles=titles,
+    titles = [f"{format_method_name(m)}: Main model" for m in valid_methods]
+    fig = make_subplots(rows=rows, cols=1, subplot_titles=titles,
                         shared_xaxes=True, vertical_spacing=0.08)
-    styles_vae = {
-        'Loss_Total': {'color': 'black', 'dash': 'dash'},
-        'ReconL': {'color': 'blue', 'dash': None},
-        'VariatL': {'color': 'green', 'dash': None},
-        'ReconL_R': {'color': 'cyan', 'dash': 'dot'},
-        'VariatL_R': {'color': 'lime', 'dash': 'dot'},
-        'ReconL_Validation': {'color': 'olive', 'dash': 'dashdot'},
-        'VariatL_Validation': {'color': 'orange', 'dash': 'dashdot'},
-        'Loss_Total_Validation': {'color': 'paleturquoise', 'dash': 'dashdot'},
-        'ReconL_Validation_Task1': {'color': 'sandybrown', 'dash': 'dashdot'},
-        'ReconL_Validation_Task2': {'color': 'magenta', 'dash': 'dashdot'},
-        'ReconL_Validation_Task3': {'color': 'darksalmon', 'dash': 'dashdot'}
-    }
-    
+
     styles_main = {'Loss_Total': {'color': 'black', 'dash': 'dash'}, 'Pred_Traj': {'color': 'cyan', 'dash': None},
                    'Pred_Traj_R': {'color': 'lime', 'dash': 'dot'}, 'Loss_Validation': {'color': 'red', 'dash': 'dashdot'}}
     sel_tasks_int = [int(t) for t in selected_tasks] if selected_tasks else []
+
     for i, method in enumerate(valid_methods):
         row_idx = i + 1
-        display_method = format_method_name(method)
-        group_main = f"{display_method}: Main model"
-        group_vae = f"{display_method}: Social-GR"
+        group_main = f"{format_method_name(method)}: Main"
         df_main = loss_data[method]['main']
+
         if df_main is not None:
             if sel_tasks_int and 'Task' in df_main.columns:
                 df_main = df_main[df_main['Task'].isin(sel_tasks_int)].copy()
-            else:
-                df_main = df_main.copy()
             epochs_per_task = df_main.groupby('Task')['Epoch'].max(
             ).iloc[0] if 'Task' in df_main.columns and not df_main.empty else 1
             if not df_main.empty:
@@ -406,17 +394,47 @@ def plot_losses_subplots(loss_data, selected_tasks):
                         metric_name = "Train: average" if col_name == "Loss_Total" else METRIC_LABELS.get(
                             col_name, col_name)
                         fig.add_trace(go.Scatter(x=df_main['Global_Step'], y=df_main[col_name], name=metric_name, line=dict(
-                            color=style['color'], dash=style['dash']), legendgroup=group_main, legendgrouptitle_text=group_main, showlegend=True), row=row_idx, col=1)
-                unique_tasks = sorted(df_main['Task'].unique())
-                for t in unique_tasks:
+                            color=style['color'], dash=style['dash']), legendgroup=group_main, showlegend=(i == 0)), row=row_idx, col=1)
+                for t in sorted(df_main['Task'].unique()):
                     fig.add_vline(x=t*epochs_per_task, line_color="gray",
                                   line_width=1, row=row_idx, col=1)
+
+    fig.update_layout(
+        height=max(300, 200 * rows), title_text="Losses for Main Model through continuous training")
+    return fig
+
+
+def plot_vae_losses(loss_data, selected_tasks):
+    valid_methods = [m for m, data in loss_data.items(
+    ) if isinstance(data['vae'], pd.DataFrame)]
+    if not valid_methods:
+        return None
+    valid_methods.sort(key=lambda x: format_method_name(x))
+
+    rows = len(valid_methods)
+    titles = [
+        f"{format_method_name(m)}: Social-GR (Generative)" for m in valid_methods]
+    fig = make_subplots(rows=rows, cols=1, subplot_titles=titles,
+                        shared_xaxes=True, vertical_spacing=0.08)
+
+    styles_vae = {
+        'Loss_Total': {'color': 'black', 'dash': 'dash'}, 'ReconL': {'color': 'blue', 'dash': None},
+        'VariatL': {'color': 'green', 'dash': None}, 'ReconL_R': {'color': 'cyan', 'dash': 'dot'},
+        'VariatL_R': {'color': 'lime', 'dash': 'dot'}, 'ReconL_Validation': {'color': 'olive', 'dash': 'dashdot'},
+        'VariatL_Validation': {'color': 'orange', 'dash': 'dashdot'}, 'Loss_Total_Validation': {'color': 'paleturquoise', 'dash': 'dashdot'},
+        'ReconL_Validation_Task1': {'color': 'sandybrown', 'dash': 'dashdot'}, 'ReconL_Validation_Task2': {'color': 'magenta', 'dash': 'dashdot'},
+        'ReconL_Validation_Task3': {'color': 'darksalmon', 'dash': 'dashdot'}
+    }
+    sel_tasks_int = [int(t) for t in selected_tasks] if selected_tasks else []
+
+    for i, method in enumerate(valid_methods):
+        row_idx = i + 1
+        group_vae = f"{format_method_name(method)}: VAE"
         df_vae = loss_data[method]['vae']
+
         if isinstance(df_vae, pd.DataFrame):
             if sel_tasks_int and 'Task' in df_vae.columns:
                 df_vae = df_vae[df_vae['Task'].isin(sel_tasks_int)].copy()
-            else:
-                df_vae = df_vae.copy()
             epochs_per_task = df_vae.groupby('Task')['Epoch'].max(
             ).iloc[0] if 'Task' in df_vae.columns and not df_vae.empty else 1
             if not df_vae.empty:
@@ -426,178 +444,239 @@ def plot_losses_subplots(loss_data, selected_tasks):
                     if col_name in df_vae.columns:
                         metric_name = METRIC_LABELS.get(col_name, col_name)
                         fig.add_trace(go.Scatter(x=df_vae['Global_Step'], y=df_vae[col_name], name=metric_name, line=dict(
-                            color=style['color'], dash=style['dash']), legendgroup=group_vae, legendgrouptitle_text=group_vae, showlegend=True), row=row_idx, col=2)
-                unique_tasks = sorted(df_vae['Task'].unique())
-                for t in unique_tasks:
+                            color=style['color'], dash=style['dash']), legendgroup=group_vae, showlegend=(i == 0)), row=row_idx, col=1)
+                for t in sorted(df_vae['Task'].unique()):
                     fig.add_vline(x=t*epochs_per_task, line_color="gray",
-                                  line_width=1, row=row_idx, col=2)
-    fig.update_layout(height=400 * rows, title_text="Losses for both main and generative models through continuous training iters (epochs)",
-                      legend=dict(tracegroupgap=20, groupclick="toggleitem"))
+                                  line_width=1, row=row_idx, col=1)
+
+    fig.update_layout(
+        height=max(300, 200 * rows), title_text="Losses for Generative Model through continuous training")
     return fig
 
 
-def plot_vae_phase_chart(loss_data, selected_tasks):
-    valid_methods = [m for m, data in loss_data.items(
-    ) if isinstance(data['vae'], pd.DataFrame)]
-    if not valid_methods:
-        return None
-    valid_methods.sort(key=lambda x: format_method_name(x))
-    COLOR_START = "#3C8004"
-    COLOR_END = "#D51A06"
-    COLOR_BEST = "#F0CE53"
-    LINE_COLORSCALE = 'RdBu_r'
-    fig = make_subplots(rows=len(valid_methods), cols=2, subplot_titles=[f"{format_method_name(m)}: Phase (Current)" for m in valid_methods] + [
-                        f"{format_method_name(m)}: Phase (Replay)" for m in valid_methods], vertical_spacing=0.15)
-    sel_tasks_int = [int(t) for t in selected_tasks] if selected_tasks else []
-    max_global_epoch = 0
-    for m in valid_methods:
-        df = loss_data[m]['vae']
-        if sel_tasks_int and 'Task' in df.columns:
-            df = df[df['Task'].isin(sel_tasks_int)]
-        if not df.empty:
-            current_max = ((df['Task'] - 1) * 200 + df['Epoch']).max()
-            if current_max > max_global_epoch:
-                max_global_epoch = current_max
-    for i, method in enumerate(valid_methods):
-        df_vae = loss_data[method]['vae'].copy()
-        if sel_tasks_int and 'Task' in df_vae.columns:
-            df_vae = df_vae[df_vae['Task'].isin(sel_tasks_int)]
-        if df_vae.empty:
-            continue
-        df_vae['Global_Epoch'] = (df_vae['Task'] - 1) * 200 + df_vae['Epoch']
-        row_idx = i + 1
+def compute_structured_figures(metrics_dfs, loss_dfs_dict, evolution_data, emissions_df, selected_plots, selected_tasks, active_methods):
+    """
+    Constrói um dicionário aninhado de figuras correspondente à estrutura de seções do LaTeX.
+    """
+    structured_figs = {
+        "Trajectory prediction performance": {
+            "Aggregated continuous learning metrics": {},
+            "Granular and sequential evaluation": {
+                "Final model performance across tasks": {},
+                "Evolution of prediction error": {}
+            }
+        },
+        "Computational and environmental impact": {
+            "Time complexity": {},
+            "Resource utilization and carbon footprint": {}
+        }
+    }
 
-        def add_plot(df, x_col, y_col, col_idx, label_suffix):
-            min_epoch = int(df['Global_Epoch'].min())
-            max_epoch = int(df['Global_Epoch'].max())
-            fig.add_trace(go.Scatter(x=df[x_col], y=df[y_col], mode='lines+markers', name=f"{format_method_name(method)}: {label_suffix}", legendgroup=f"group_{row_idx}_{col_idx}", marker=dict(color=df['Global_Epoch'], colorscale=LINE_COLORSCALE, cmin=min_epoch, cmax=max_epoch, size=6, showscale=(
-                i == 0 and col_idx == 2), colorbar=dict(title="Global Epoch", x=1.08) if (i == 0 and col_idx == 2) else None,), hovertext=[f"Task {t}, Epoch {e}" for t, e in zip(df['Task'], df['Epoch'])]), row=row_idx, col=col_idx)
-            fig.add_trace(go.Scatter(x=[df[x_col].iloc[0]], y=[df[y_col].iloc[0]], mode='markers', name='Start', marker=dict(
-                color=COLOR_START, size=10, symbol='circle', line=dict(width=1, color='black')), legendgroup=f"group_{row_idx}_{col_idx}", showlegend=False), row=row_idx, col=col_idx)
-            fig.add_trace(go.Scatter(x=[df[x_col].iloc[-1]], y=[df[y_col].iloc[-1]], mode='markers', name='End', marker=dict(color=COLOR_END, size=10,
-                          symbol='star', line=dict(width=1, color='black')), legendgroup=f"group_{row_idx}_{col_idx}", showlegend=False), row=row_idx, col=col_idx)
-            idx_best = df[y_col].idxmin()
-            fig.add_trace(go.Scatter(x=[df.loc[idx_best, x_col]], y=[df.loc[idx_best, y_col]], mode='markers', name='Best Recon', marker=dict(
-                color=COLOR_BEST, size=10, symbol='star', line=dict(width=1, color='orange')), legendgroup=f"group_{row_idx}_{col_idx}", showlegend=False), row=row_idx, col=col_idx)
-        add_plot(df_vae, 'VariatL', 'ReconL', 1, "Current")
-        if 'ReconL_R' in df_vae.columns and df_vae['ReconL_R'].sum() > 0:
-            add_plot(df_vae, 'VariatL_R', 'ReconL_R', 2, "Replay")
-    fig.update_xaxes(title_text="Variational loss")
-    fig.update_yaxes(title_text="Reconstruction loss")
-    fig.update_layout(height=450 * len(valid_methods), title_text="VAE Training Phase Space", showlegend=True,
-                      margin=dict(t=150, r=100), legend=dict(orientation="h", yanchor="bottom", y=1.12, xanchor="center", x=0.5))
-    return fig
+    if not metrics_dfs:
+        return structured_figs
 
+    df = pd.concat(metrics_dfs, ignore_index=True)
+    df = df[df["method"].isin(active_methods)].copy()  # Filtra pelo Checklist
+    df["method"] = df["method"].astype(str)
+    df = compute_nbwt(df)
 
-def compute_figures(metrics_dfs, loss_dfs_dict, evolution_data, selected_plots, selected_tasks):
-    figs = {}
+    df_cl = df[df["method"].str.contains("CL", na=False)].copy()
+    df_il = df[df["method"] == "IL"].copy()
 
-    if metrics_dfs:
-        df = pd.concat(metrics_dfs, ignore_index=True)
-        df["method"] = df["method"].astype(str)
-        df = compute_nbwt(df)
-        df_cl = df[df["method"].str.contains("CL", na=False)].copy()
-        df_il = df[df["method"] == "IL"].copy()
+    df_ape_source = df_cl.copy()
+    df_duration_source = df_cl.copy()
 
-        df_ape_source = df_cl.copy()
-        df_duration_source = df_cl.copy()
+    if not df_il.empty and "IL_mean" in active_methods:
+        il_avg = df_il.select_dtypes(include=[np.number]).mean().to_dict()
+        il_avg["method"] = "IL_mean"
+        df_il_mean = pd.DataFrame([il_avg])
+        df_ape_source = pd.concat(
+            [df_ape_source, df_il_mean], ignore_index=True)
+        df_duration_source = pd.concat(
+            [df_duration_source, df_il_mean], ignore_index=True)
 
-        if not df_il.empty:
-            il_avg = df_il.select_dtypes(include=[np.number]).mean().to_dict()
-            il_avg["method"] = "IL_mean"
-            df_il_mean = pd.DataFrame([il_avg])
-            df_ape_source = pd.concat(
-                [df_ape_source, df_il_mean], ignore_index=True)
-            df_duration_source = pd.concat(
-                [df_duration_source, df_il_mean], ignore_index=True)
+    # 1.1 Aggregated continuous learning metrics
+    if "ape" in selected_plots and not df_ape_source.empty:
+        structured_figs["Trajectory prediction performance"]["Aggregated continuous learning metrics"]["APE"] = plot_bar_chart(
+            df_ape_source, ["average_prediction_error_ape_ade", "average_prediction_error_ape_fde"], "Average Prediction Error (APE)", "Meters")
+    if ("bwt" in selected_plots or "forgetting" in selected_plots) and not df_cl.empty:
+        structured_figs["Trajectory prediction performance"]["Aggregated continuous learning metrics"]["BWT"] = plot_bar_chart(
+            df_cl, ["backward_transfer_bwt_ade", "backward_transfer_bwt_fde"], "Backward Transfer (BWT)", "Value")
+    if ("fwt" in selected_plots or "forgetting" in selected_plots) and not df_cl.empty:
+        structured_figs["Trajectory prediction performance"]["Aggregated continuous learning metrics"]["FWT"] = plot_bar_chart(
+            df_cl, ["forward_transfer_fwt_ade", "forward_transfer_fwt_fde"], "Forward Transfer (FWT)", "Value")
 
-        if "ape" in selected_plots:
-            figs["APE"] = plot_bar_chart(df_ape_source, ["average_prediction_error_ape_ade", "average_prediction_error_ape_fde"],
-                                         "Average Prediction Error (APE) of final models on full benchmark test split", "Meters")
+    # 1.2.1 Final model performance across tasks
+    common_range = None
+    if not df_cl.empty:
+        all_cols = [c for c in df_cl.columns if re.search(
+            r"ade_task\d+_", c) or re.search(r"fde_task\d+_", c)]
+        if all_cols:
+            common_range = [0, df_cl[all_cols].max().max() * 1.1]
 
-        # --- NOVO GRÁFICO: Evolution from Matrices ---
-        if "ade" in selected_plots and evolution_data:
-            # Itera sobre os métodos carregados e cria um gráfico para cada
-            for method_name, matrices in evolution_data.items():
-                if matrices['ade'] is not None or matrices['fde'] is not None:
-                    fig_evol = plot_method_evolution(
-                        method_name, matrices['ade'], matrices['fde'])
-                    figs[f"Evolution ({format_method_name(method_name)})"] = fig_evol
+    if "ade" in selected_plots and not df_cl.empty:
+        structured_figs["Trajectory prediction performance"]["Granular and sequential evaluation"]["Final model performance across tasks"]["ADE per Task"] = plot_per_task_metric(
+            df_cl, "ade", "ADE of final model per task", "Meters", y_range=common_range)
+    if "fde" in selected_plots and not df_cl.empty:
+        structured_figs["Trajectory prediction performance"]["Granular and sequential evaluation"]["Final model performance across tasks"]["FDE per Task"] = plot_per_task_metric(
+            df_cl, "fde", "FDE of final model per task", "Meters", y_range=common_range)
 
-        if "bwt" in selected_plots or "forgetting" in selected_plots:
-            figs["BWT"] = plot_bar_chart(df_cl, [
-                                         "backward_transfer_bwt_ade", "backward_transfer_bwt_fde"], "Backward Transfer (BWT)", "Value")
+    # 1.2.2 Evolution of prediction error (Graficos individuais por Task)
+    if "ade" in selected_plots and evolution_data:
+        max_tasks_found = 0
+        for m_data in evolution_data.values():
+            if m_data['ade'] is not None:
+                max_tasks_found = max(max_tasks_found, m_data['ade'].shape[1])
 
-        if "fwt" in selected_plots or "forgetting" in selected_plots:
-            figs["FWT"] = plot_bar_chart(df_cl, [
-                                         "forward_transfer_fwt_ade", "forward_transfer_fwt_fde"], "Forward Transfer (FWT)", "Value")
-
-        if "duration" in selected_plots:
-            figs["Duration"] = plot_bar_chart(df_duration_source, [
-                                              "training_time_in_secs"], "Total duration of experiment", "Seconds")
-
-        max_y = 0
-        ade_patt = re.compile(r"ade_task\d+_")
-        fde_patt = re.compile(r"fde_task\d+_")
-        all_cols = []
-        for c in df_cl.columns:
-            if ade_patt.search(c) or fde_patt.search(c):
-                all_cols.append(c)
-        if all_cols and not df_cl.empty:
-            curr_max = df_cl[all_cols].max().max()
-            if pd.notna(curr_max):
-                max_y = curr_max * 1.1
-        common_range = [0, max_y] if max_y > 0 else None
-
-        if "ade" in selected_plots:
-            figs["ADE per Task (Final Model)"] = plot_per_task_metric(
-                df_cl, "ade", "Average displacement error (ADE) of final model per task-specific test split", "Meters", y_range=common_range)
-
-        if "fde" in selected_plots:
-            figs["FDE per Task (Final Model)"] = plot_per_task_metric(
-                df_cl, "fde", "Final displacement error (FDE) of final model per task-specific test split", "Meters", y_range=common_range)
-
-        if "time_task" in selected_plots or "duration" in selected_plots:
-            figs["Elapsed time per task"] = plot_per_task_metric(
-                df_cl, "time", "Elapsed time per task", "Seconds")
+        for task_idx in range(1, max_tasks_found + 1):
+            if selected_tasks and task_idx not in selected_tasks:
+                continue  # Respeita o filtro lateral
+            fig_evol = plot_evolution_per_task(evolution_data, task_idx)
+            if fig_evol:
+                structured_figs["Trajectory prediction performance"]["Granular and sequential evaluation"][
+                    "Evolution of prediction error"][f"Evolution on Task {task_idx}"] = fig_evol
 
     if "losses" in selected_plots and loss_dfs_dict:
-        fig_loss = plot_losses_subplots(loss_dfs_dict, selected_tasks)
-        if fig_loss:
-            figs["Losses"] = fig_loss
-        fig_phase = plot_vae_phase_chart(loss_dfs_dict, selected_tasks)
-        if fig_phase:
-            figs["VAE Phase Plot (Recon vs Variat)"] = fig_phase
+        fig_main_loss = plot_main_losses(loss_dfs_dict, selected_tasks)
+        if fig_main_loss:
+            structured_figs["Trajectory prediction performance"]["Granular and sequential evaluation"][
+                "Evolution of prediction error"]["Training Losses (Main Model)"] = fig_main_loss
 
-    return figs
+        fig_vae_loss = plot_vae_losses(loss_dfs_dict, selected_tasks)
+        if fig_vae_loss:
+            structured_figs["Trajectory prediction performance"]["Granular and sequential evaluation"][
+                "Evolution of prediction error"]["Training Losses (Generative Model)"] = fig_vae_loss
+
+    # 2.1 Time complexity
+    if "duration" in selected_plots and not df_duration_source.empty:
+        structured_figs["Computational and environmental impact"]["Time complexity"]["Total Duration"] = plot_bar_chart(
+            df_duration_source, ["training_time_in_secs"], "Total duration of experiment", "Seconds")
+    if ("time_task" in selected_plots or "duration" in selected_plots) and not df_cl.empty:
+        structured_figs["Computational and environmental impact"]["Time complexity"]["Elapsed time per task"] = plot_per_task_metric(
+            df_cl, "time", "Elapsed time per task", "Seconds")
+
+    # 2.2 Resource utilization and carbon footprint
+    if "emissions" in selected_plots and emissions_df is not None and not emissions_df.empty:
+        structured_figs["Computational and environmental impact"]["Resource utilization and carbon footprint"]["CO₂ Emissions"] = plot_bar_chart(
+            emissions_df, ["emissions"], "Total CO₂ Emissions", "kg CO₂ eq")
+        structured_figs["Computational and environmental impact"]["Resource utilization and carbon footprint"]["Energy Consumption Breakdown"] = plot_bar_chart(
+            emissions_df, ["cpu_energy", "gpu_energy", "ram_energy", "energy_consumed"], "Energy Consumption Breakdown", "kWh")
+
+    return structured_figs
 
 # =========================================================
 # DASH UI
 # =========================================================
 
 
-def build_sidebar(hparams, available_tasks):
+def build_sidebar(hparams, available_tasks, available_methods):
     task_options = [{'label': f'Task {i}', 'value': i}
                     for i in available_tasks]
-    default_tasks = available_tasks
-    return html.Div([html.H3("Filters"), html.Hr(), *[html.Div([html.Label(p.replace("_", " ").title()), dcc.Dropdown(id=f"dropdown-{p}", options=[{"label": str(v), "value": v} for v in vals], clearable=True, placeholder="Select...")], className="mb-3") for p, vals in hparams.items()], html.Hr(), html.Label("Tasks for losses plot:"), dcc.Checklist(id='task-checklist', options=task_options, value=default_tasks, inline=False, inputStyle={"margin-right": "5px", "margin-left": "5px"}), html.Hr(), dbc.Button("Apply Filters", id="apply-btn", color="primary", className="w-100"), html.Hr(), html.Small("Select filters and click 'Apply Filters' to render.", className="text-muted")], style={"position": "fixed", "left": 0, "top": 0, "bottom": 0, "width": "20rem", "padding": "2rem", "background": "#f8f9fa", "overflow-y": "auto"})
+    method_options = [{'label': format_method_name(
+        m), 'value': m} for m in available_methods]
+
+    return html.Div([
+        html.H3("Filters"), html.Hr(),
+
+        html.Label("Methods to compare:", className="fw-bold"),
+        dcc.Checklist(id='method-checklist', options=method_options,
+                      value=available_methods, inline=False, inputStyle={"margin-right": "5px"}),
+        html.Hr(),
+
+        *[html.Div([html.Label(p.replace("_", " ").title(), className="fw-bold"), dcc.Dropdown(id=f"dropdown-{p}", options=[{"label": str(
+            v), "value": v} for v in vals], clearable=True, placeholder="Select...")], className="mb-3") for p, vals in hparams.items()],
+        html.Hr(),
+
+        html.Label("Tasks to plot (Evolution/Losses):", className="fw-bold"),
+        dcc.Checklist(id='task-checklist', options=task_options,
+                      value=available_tasks, inline=False, inputStyle={"margin-right": "5px"}),
+        html.Hr(),
+
+        dbc.Button("Apply Filters & Save Plots", id="apply-btn",
+                   color="primary", className="w-100"),
+        html.Hr(),
+        html.Small(
+            "Select filters and click 'Apply Filters' to render and export .svg files to /saved_plots.", className="text-muted")
+    ], style={"position": "fixed", "left": 0, "top": 0, "bottom": 0, "width": "22rem", "padding": "2rem", "background": "#f8f9fa", "overflow-y": "auto"})
 
 
 def build_instruction_message():
-    return dbc.Container([html.H1("Results dashboard"), html.Hr(), dbc.Alert([html.H4("Waiting Selection"), html.P("Please select all hyperparameters and click 'Apply Filters'.")], color="info")], fluid=True, style={"margin-top": "2rem"})
+    return dbc.Container([html.H1("Results dashboard"), html.Hr(), dbc.Alert([html.H4("Waiting Selection"), html.P("Please select filters and click 'Apply Filters & Save Plots'.")], color="info")], fluid=True, style={"margin-top": "2rem"})
 
 
-def build_main(figs):
-    children = [html.H1("Results dashboard"), html.Hr()]
-    if not figs:
-        children += [dbc.Alert("No data found.", color="warning")]
-    else:
-        for name, fig in figs.items():
-            style = {
-                "height": "1000px"} if "Losses" in name or "Phase" in name else {}
-            children += [dbc.Card([dbc.CardHeader(html.H4(name, className="m-0")), dbc.CardBody(
-                dcc.Graph(figure=fig, style=style))], className="mb-4 shadow-sm")]
+def build_main(sections_dict):
+    children = [html.H1("Results Dashboard",
+                        className="mb-4 text-center"), html.Hr()]
+
+    has_any_data = False
+
+    for sec_title, subsecs in sections_dict.items():
+        sec_children = [
+            html.H2(sec_title, className="mt-5 border-bottom pb-2 text-primary")]
+        has_fig_in_sec = False
+
+        for subsec_title, content in subsecs.items():
+            subsec_children = [
+                html.H3(subsec_title, className="mt-4 mb-3 text-secondary")]
+            has_fig_in_subsec = False
+
+            for key, value in content.items():
+                if isinstance(value, go.Figure):
+                    # Nível 2: Gráfico direto na subseção (Ex: APE, Total Duration)
+                    subsec_children.append(dbc.Card([dbc.CardHeader(
+                        key, className="fw-bold"), dbc.CardBody(dcc.Graph(figure=value))], className="mb-4 shadow-sm"))
+                    has_fig_in_subsec = True
+
+                elif isinstance(value, dict) and value:
+                    # Nível 3: Subsubseção contendo um dicionário de gráficos (Ex: Evolution, Final model across tasks)
+                    subsubsec_children = [
+                        html.H4(key, className="mt-3 mb-3 fst-italic")]
+                    has_fig_in_subsubsec = False
+
+                    for fig_name, fig in value.items():
+                        if isinstance(fig, go.Figure):
+                            subsubsec_children.append(dbc.Card([dbc.CardHeader(
+                                fig_name, className="fw-bold"), dbc.CardBody(dcc.Graph(figure=fig))], className="mb-4 shadow-sm"))
+                            has_fig_in_subsubsec = True
+
+                    if has_fig_in_subsubsec:
+                        subsec_children.extend(subsubsec_children)
+                        has_fig_in_subsec = True
+
+            if has_fig_in_subsec:
+                sec_children.extend(subsec_children)
+                has_fig_in_sec = True
+
+        if has_fig_in_sec:
+            children.extend(sec_children)
+            has_any_data = True
+
+    if not has_any_data:
+        return dbc.Container([dbc.Alert("No data found for the selected filters.", color="warning")], fluid=True)
+
     return dbc.Container(children, fluid=True)
+
+
+def save_all_figures(sections_dict, save_dir):
+    """Percorre a estrutura de dicionários e salva cada figura como arquivo .tex (TikZ)."""
+    os.makedirs(save_dir, exist_ok=True)
+
+    def recursive_save(d, prefix=""):
+        for k, v in d.items():
+            if isinstance(v, dict):
+                recursive_save(v, prefix)
+            elif isinstance(v, go.Figure):
+                # Formata o nome do arquivo removendo caracteres estranhos
+                safe_name = re.sub(r'[^a-zA-Z0-9_\-]', '_', k).lower()
+                filepath = os.path.join(save_dir, f"{safe_name}.tex")
+
+                try:
+                    # Usa tikzplotly para salvar o gráfico
+                    tikzplotly.save(filepath, v)
+                except Exception as e:
+                    print(f"Erro ao exportar {filepath} via tikzplotly: {e}")
+
+    recursive_save(sections_dict)
 
 
 # =========================================================
@@ -608,47 +687,59 @@ if __name__ == "__main__":
     all_metrics_dfs = load_metrics_dfs(args.results_dir)
     hyper_vals = extract_unique_values(all_metrics_dfs, args.hyperparameters)
     available_tasks = extract_available_tasks(all_metrics_dfs)
+    available_methods = extract_available_methods(all_metrics_dfs)
 
     app = Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
-    app.layout = html.Div([build_sidebar(hyper_vals, available_tasks), html.Div(
-        id="page-content", children=build_instruction_message(), style={"margin-left": "22rem", "padding": "2rem"})])
+    app.layout = html.Div([build_sidebar(hyper_vals, available_tasks, available_methods), html.Div(
+        id="page-content", children=build_instruction_message(), style={"margin-left": "24rem", "padding": "2rem"})])
 
-    @callback(Output("page-content", "children"), [Input("apply-btn", "n_clicks")], [*(State(f"dropdown-{p}", "value") for p in hyper_vals.keys()), State("task-checklist", "value")])
+    @callback(Output("page-content", "children"), [Input("apply-btn", "n_clicks")], [*(State(f"dropdown-{p}", "value") for p in hyper_vals.keys()), State("task-checklist", "value"), State("method-checklist", "value")])
     def update(n_clicks, *values):
-        task_values = values[-1]
-        dropdown_values = values[:-1]
-        if n_clicks is None or any(v is None for v in dropdown_values):
+        active_methods = values[-1]
+        task_values = values[-2]
+        dropdown_values = values[:-2]
+
+        if n_clicks is None or any(v is None for v in dropdown_values) or not active_methods:
             return build_instruction_message()
+
         filters = dict(zip(hyper_vals.keys(), dropdown_values))
 
         filtered_metrics = []
-        available_methods = set()
+        found_methods = set()
         for df in all_metrics_dfs:
             dff = df.copy()
             match = True
             for k, v in filters.items():
-                if k in dff.columns:
-                    if dff[k].iloc[0] != v:
-                        match = False
-                        break
+                if k in dff.columns and dff[k].iloc[0] != v:
+                    match = False
+                    break
             if match:
                 filtered_metrics.append(dff)
-                available_methods.update(dff["method"].unique())
+                found_methods.update(dff["method"].unique())
 
-        loss_dfs = {}
-        evolution_data = {}
+        # Interseciona os métodos filtrados pelos hyperparameters com os selecionados no checklist
+        methods_to_process = found_methods.intersection(set(active_methods))
+
+        loss_dfs, evolution_data, emissions_df = {}, {}, pd.DataFrame()
 
         if filtered_metrics:
             if "losses" in args.plots:
                 loss_dfs = load_loss_dfs(
-                    args.results_dir, filters, available_methods)
+                    args.results_dir, filters, methods_to_process)
             if "ade" in args.plots:
-                # Carrega as matrizes completas
                 evolution_data = load_evolution_matrices(
-                    args.results_dir, filters, available_methods)
+                    args.results_dir, filters, methods_to_process)
+            if "emissions" in args.plots:
+                emissions_df = load_emissions_dfs(
+                    args.results_dir, filters, methods_to_process)
 
-        figs = compute_figures(filtered_metrics, loss_dfs,
-                               evolution_data, args.plots, task_values)
-        return build_main(figs)
+        sections_dict = compute_structured_figures(
+            filtered_metrics, loss_dfs, evolution_data, emissions_df, args.plots, task_values, methods_to_process)
+
+        # Salva os gráficos automaticamente
+        save_all_figures(sections_dict, os.path.join(
+            args.results_dir, "saved_plots"))
+
+        return build_main(sections_dict)
 
     app.run(debug=True, port=8050)

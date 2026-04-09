@@ -349,41 +349,45 @@ def add_llm_args(parser: argparse.ArgumentParser):
     group = parser.add_argument_group('LLM Configuration')
     
     group.add_argument(
-        "--config_file",
-        type=str,
-        default="/home/matheus/LLM4CPTL/cptl_with_social_gr/datasets/preprocessed/llm_preprocessed_data_config.yaml",
-        help="Caminho para o arquivo YAML de configuração (mapeamentos e caminhos)"
-    )
-
-    group.add_argument(
-        "--adapt_architecture_to_include_llm_motion_cues",
-        action='store_true'
-    )
-    
-    group.add_argument(
         "--adapt_architecture_to_include_sequence_embedding",
-        action='store_true'
-    )
-    
-    group.add_argument(
-        "--use_skip_connection",
-        action='store_true'
-    )
-    
-    group.add_argument(
-        "--use_gradient_clipping",
-        action='store_true'
-    )
-    
-    group.add_argument(
-        "--use_kl_annealing",
-        action='store_true'
+        action='store_true',
+        help=""
     )
     
     group.add_argument(
         '--sequence_embedding_compressed_dimension',
         type=int,
-        default=64,#128
+        default=64,
+    )
+    
+    group.add_argument(
+        "--use_kl_annealing",
+        action='store_true',
+        help=""
+    )
+    
+    group.add_argument(
+        "--use_embeddings_buffer",
+        action='store_true',
+        help=""
+    )
+    
+    group.add_argument(
+        "--use_uncertainty_filter",
+        action='store_true',
+        help=""
+    )
+    
+    group.add_argument(
+        "--use_prior_adaptation",
+        action='store_true',
+        help=""
+    )
+    
+    group.add_argument(
+        "--use_dc_vampprior",
+        action='store_true',
+        help=""
     )
 
     # Models
@@ -416,16 +420,6 @@ def add_llm_args(parser: argparse.ArgumentParser):
         '--local_model_embedding_path',
         type=str,
         default=None
-    )
-
-    # Mappings
-    group.add_argument(
-        "--llm_motion_cues_mapping",
-        type=dict
-    )
-    group.add_argument(
-        "--llm_sequences_embeddings_mapping",
-        type=dict
     )
 
     # Generation parameters
@@ -609,7 +603,7 @@ def add_eval_args(parser: argparse.ArgumentParser):
     group.add_argument(
         '--time',
         action='store_true',
-        help="keep track of total training time"
+        help="Keep track of total training time"
     )
     
     group.add_argument(

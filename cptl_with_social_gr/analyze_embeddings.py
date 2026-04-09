@@ -1,10 +1,12 @@
 import torch
 import os
+import tikzplotly
 import numpy as np
-import matplotlib.pyplot as plt
+import plotly.graph_objects as go
+import plotly.colors as pcolors
 from sklearn.decomposition import PCA
-from args import get_all_args
 
+from args import get_all_args
 from data.loader import data_dset
 from helper.utils import get_dset_path
 from data.trajectories import TrajectoryDataset
@@ -59,10 +61,6 @@ def plot_embeddings(args):
     pca = PCA(n_components=n_comps)
     X_embedded = pca.fit_transform(X)
 
-    var_exp = pca.explained_variance_ratio_.sum()
-    print(
-        f"Variância explicada pelos {n_comps} primeiros componentes: {var_exp:.2%}")
-
     # =========================
     # Mapas de cores e markers
     # =========================
@@ -70,10 +68,14 @@ def plot_embeddings(args):
     dataset_labels_arr = np.array(dataset_labels)
     scene_labels_arr = np.array(scene_labels)
 
-    colors = plt.cm.tab10(np.linspace(0, 1, len(unique_datasets)))
-    dataset_color_map = dict(zip(unique_datasets, colors))
+    # Pegando uma paleta de cores padrão do Plotly
+    color_palette = pcolors.qualitative.Plotly
+    dataset_color_map = {ds: color_palette[i % len(
+        color_palette)] for i, ds in enumerate(unique_datasets)}
 
-    markers = ['o', 's', '^', 'D', 'P', 'X', '*', 'v', '<', '>']
+    # Marcadores nativos do Plotly (equivalentes aos do Matplotlib que você usava)
+    markers = ['circle', 'square', 'triangle-up', 'diamond', 'cross',
+               'x', 'star', 'triangle-down', 'triangle-left', 'triangle-right']
     scene_marker_map = {}
 
     for dataset in unique_datasets:
@@ -83,9 +85,9 @@ def plot_embeddings(args):
             scene_marker_map[scene] = markers[i % len(markers)]
 
     # =========================
-    # Plot
+    # Construção do Plotly Figure
     # =========================
-    plt.figure(figsize=(12, 8))
+    fig = go.Figure()
 
     for dataset in unique_datasets:
         scenes_in_dataset = np.unique(
@@ -97,35 +99,60 @@ def plot_embeddings(args):
             if np.sum(mask) == 0:
                 continue
 
-            plt.scatter(
-                X_embedded[mask, 0],
-                X_embedded[mask, 1],
-                c=[dataset_color_map[dataset]],
-                marker=scene_marker_map[scene],
-                label=f"{dataset} - {scene}",
-                alpha=0.7,
-                s=60,
-                edgecolors='black',
-                linewidths=0.5
-            )
+            x_vals = X_embedded[mask, 0]
+            y_vals = X_embedded[mask, 1]
 
-    plt.title("PCA das Embeddings de Cena (LLM)")
-    plt.xlabel("Componente Principal 1")
-    plt.ylabel("Componente Principal 2")
-    plt.grid(True, alpha=0.3)
+            # Lógica de rótulo para a legenda
+            label = dataset if dataset in [
+                "inD", "INTERACTION"] else f"{dataset} - {scene}"
 
-    handles, labels = plt.gca().get_legend_handles_labels()
-    by_label = dict(zip(labels, handles))
-    plt.legend(by_label.values(), by_label.keys(),
-               bbox_to_anchor=(1.05, 1), loc='upper left', fontsize=9)
+            fig.add_trace(go.Scatter(
+                x=x_vals,
+                y=y_vals,
+                mode='markers',
+                name=label,
+                marker=dict(
+                    color=dataset_color_map[dataset],
+                    symbol=scene_marker_map[scene],
+                    size=10,
+                    opacity=0.7,
+                    line=dict(width=0.5, color='black')  # Borda dos marcadores
+                )
+            ))
+
+    # =========================
+    # Finalização do Plot
+    # =========================
+    fig.update_layout(
+        xaxis_title="Dimension 1",
+        yaxis_title="Dimension 2",
+        template="simple_white",  # Este template remove as bordas top/right automaticamente
+        width=1000,
+        height=700,
+        legend=dict(
+            font=dict(size=12),
+            yanchor="top",
+            y=1,
+            xanchor="left",
+            x=1.02  # Posiciona a legenda fora do gráfico à direita
+        )
+    )
 
     if not os.path.exists(args.plot_dir):
         os.makedirs(args.plot_dir)
 
-    save_path = os.path.join(args.plot_dir, "embeddings_pca.png")
-    plt.savefig(save_path, dpi=300, bbox_inches="tight")
+    # Salva em SVG usando o motor nativo do plotly (exige kaleido)
+    #svg_path = os.path.join(args.plot_dir, "embeddings_pca.svg")
+    #fig.write_image(svg_path)
 
-    print(f"Plot salvo em {save_path}")
+    # Salva em TEX usando o tikzplotly que você estava tentando usar inicialmente
+    tex_path = os.path.join(args.plot_dir, "embeddings_pca.tex")
+    tikzplotly.save(tex_path, fig)
+
+    print(f"Plots salvos em {args.plot_dir}")
+
+    # Opcional: Para abrir o gráfico interativo no navegador localmente ao rodar
+    # fig.show()
 
 
 if __name__ == "__main__":

@@ -62,9 +62,9 @@ def run(args, verbose=False):
         from codecarbon import EmissionsTracker
 
         tracker_carboncode = EmissionsTracker(
-            project_name=f"{variation_of_clsgr_executed}_{args.replay}_{args.obs_len}_{args.pred_len}_{args.batch_size}_{args.replay_batch_size if variation_of_clsgr_executed != 'IL' else None}_{args.iters}_{args.main_model}",
+            project_name=f"{variation_of_clsgr_executed}_{args.obs_len}_{args.pred_len}_{args.batch_size}_{args.iters}_{args.main_model}",
             output_dir=args.r_dir,
-            output_file=f"{variation_of_clsgr_executed}_emissions_{args.dataset_name}_{args.iters}_{args.batch_size}.csv" if args.method == 'batch_learning' else f"{variation_of_clsgr_executed}_emissions_{args.iters}_{args.batch_size}.csv"
+            output_file=f"{variation_of_clsgr_executed}_emissions_{args.iters}_{args.batch_size}_{args.dataset_name}_.csv" if args.method == 'batch_learning' else f"{variation_of_clsgr_executed}_emissions_{args.iters}_{args.batch_size}_{'-'.join(args.dataset)}.csv"
         )
 
     ###############################################################################
@@ -144,12 +144,6 @@ def run(args, verbose=False):
         if args.use_codecarbon:
             tracker_carboncode.start()
 
-        if args.time:
-            start = time.time()
-
-        if args.use_codecarbon:
-            tracker_carboncode.start()
-
         for epoch in range(args.start_epoch, args.iters + 1):
             train(args, model, train_loader, optimizer, epoch, writer)
             if epoch >= args.val_epoch:
@@ -187,10 +181,6 @@ def run(args, verbose=False):
             )
 
             training_time = time.time() - start
-            time_file = open("{}/{}_time-{}.txt".format(args.r_dir,
-                             variation_of_clsgr_executed, param_stamp), 'w')
-            time_file.write('{}\n'.format(training_time))
-            time_file.close()
 
         if verbose and args.time:
             print("=> Total training time = {:.1f} seconds\n".format(
@@ -380,9 +370,8 @@ def run(args, verbose=False):
                                  adapt_architecture_to_include_sequence_embedding=args.adapt_architecture_to_include_sequence_embedding,
                                  sequence_embedding_dimension=args.dimensions,
                                  sequence_embedding_compressed_dimension=args.sequence_embedding_compressed_dimension,
-                                 use_gradient_clipping=args.use_gradient_clipping,
-                                 clip_gradient_max_norm=args.clip_gradient_max_norm,
-                                 use_skip_connection=args.use_skip_connection
+                                 use_prior_adaptation=args.use_prior_adaptation,
+                                 use_dc_vampprior=args.use_dc_vampprior
                                  ).to(device)
 
             # Define optimizer(s)
@@ -416,9 +405,8 @@ def run(args, verbose=False):
                                       adapt_architecture_to_include_sequence_embedding=args.adapt_architecture_to_include_sequence_embedding,
                                       sequence_embedding_dimension=args.dimensions,
                                       sequence_embedding_compressed_dimension=args.sequence_embedding_compressed_dimension,
-                                      use_gradient_clipping=args.use_gradient_clipping,
-                                      clip_gradient_max_norm=args.clip_gradient_max_norm,
-                                      use_skip_connection=args.use_skip_connection
+                                      use_prior_adaptation=args.use_prior_adaptation,
+                                      use_dc_vampprior=args.use_dc_vampprior
                                       ).to(device)
 
             # -Define optimizer(s):
@@ -433,19 +421,6 @@ def run(args, verbose=False):
         # --------------------#
         # ------REPORTING-----#
         # --------------------#
-
-        # Get parameter-stamp (and print on screen)
-        if verbose:
-            print("\nParameter-stamp...")
-
-        param_stamp = get_param_stamp(
-            args,
-            model.name,
-            verbose=verbose,
-            replay=True if (not args.replay == "none") else False,
-            replay_model_name=generator.name if (
-                args.replay == "generative") else None,
-        )
 
         # Print some model-characteristics on the screen
         if verbose:
@@ -571,7 +546,6 @@ def run(args, verbose=False):
                                                                     fake_generator=fake_generator,
                                                                     gen_iters=args.g_iters,
                                                                     gen_loss_cbs=generator_loss_cbs,
-                                                                    fake_gen_loss_cbs=fake_generator_loss_cbs,
                                                                     sample_cbs=sample_cbs,
                                                                     eval_cbs=eval_cbs,
                                                                     loss_cbs=solver_loss_cbs,
@@ -587,19 +561,14 @@ def run(args, verbose=False):
         # Get total training duration in seconds and write it into a file
         if args.time:
             training_time = time.time() - start
-            time_file = open(
-                f"{args.r_dir}/{variation_of_clsgr_executed}_time-{param_stamp}.txt", 'w')
-            time_file.write('{}\n'.format(training_time))
-            time_file.close()
 
         # Save trained model to a file for future load and inference:
-        model_checkpoint_filename = f"{args.r_dir}/{variation_of_clsgr_executed}_mainModel_{model.name}_{args.iters}_{args.batch_size}_{args.replay_batch_size}.pth"
+        #model_checkpoint_filename = f"{args.r_dir}/{variation_of_clsgr_executed}_mainModelCheckpoint_taskFinal_{model.name}_{args.iters}_{args.batch_size}_{'-'.join(args.dataset)}.pth"
 
-        utils.save_checkpoint(args=args, state=model.state_dict(
-        ), is_best=False, filename=model_checkpoint_filename)
+        #utils.save_checkpoint(args=args, state=model.state_dict(
+        #), is_best=False, filename=model_checkpoint_filename)
 
-        print(
-            f"Final trained model (type: {type(model)}) saved to {model_checkpoint_filename}")
+        #print(f"Final trained model (type: {type(model)}) saved to {model_checkpoint_filename}")
 
         # ------------------------------------------------------------------------------------------------------------------#
         # ------------------#
@@ -639,7 +608,7 @@ def run(args, verbose=False):
             if fde_matrix is not None:
                 backward_transfer_bwt_fde, forward_transfer_fwt_fde, true_bwt_fde, cbwt_per_task_fde = evaluate.calculate_cl_metrics(fde_matrix, error_metric="FDE")
 
-            metrics_filename = f"{args.r_dir}/{variation_of_clsgr_executed}_metrics-{args.replay}-{args.iters}-{args.batch_size}-{args.replay_batch_size}-{args.lr}-{args.main_model}-{args.dataset}-{args.seed}-{args.val}-{args.val_class}.csv"
+            metrics_filename = f"{args.r_dir}/{variation_of_clsgr_executed}_metrics_{args.iters}_{args.batch_size}_{'-'.join(args.dataset)}.csv"
             metrics_data = {
                 # Experiment settings:
                 'method': variation_of_clsgr_executed,
@@ -694,19 +663,6 @@ def run(args, verbose=False):
             metrics_dataframe.to_csv(metrics_filename, index=False)
 
             print(f"\nGenerated CSV file with metrics: {metrics_filename}")
-
-        # ------------------------------------------------------------------------------------------------------------------#
-        # -------------------#
-        # ------OUTPUT-------#
-        # -------------------# #
-
-        # Average precision on full test set
-        output_file = open(f"{args.r_dir}/{variation_of_clsgr_executed}_prec-{args.replay}-{args.iters}-{args.z_dim}-{args.batch_size}-{args.replay_batch_size}-{args.lr}-{args.aug}-{args.main_model}-{args.dataset}-{args.seed}-{args.val}-{args.val_class}-si{args.si}-{args.si_c}.txt", "w")
-
-        output_file.write(
-            f"Training:{train_order}\nADEs:{ades}\nADE:{average_ades}\nFDEs:{fdes}\nFDE:{average_fdes}")
-
-        output_file.close()
 
         # ------------------------------------------------------------------------------------------------------------------#
 
@@ -778,14 +734,6 @@ def run(args, verbose=False):
             for figure in figure_list:
                 pp.savefig(figure)
 
-            # output
-            output_file = open(f"{args.r_dir}/{variation_of_clsgr_executed}_ADE-FDE-{args.replay}-{args.iters}-{args.z_dim}-{args.batch_size}-{args.replay_batch_size}-{args.lr}-{args.aug}-{args.main_model}-{args.dataset}-{args.seed}_{args.val}_{args.val_class}_{args.si}_{args.si_c}.txt", "w")
-
-            output_file.write(
-                'ADEs:{plot_ade_list}\nAverage_ADE:{metric_dict["average_ade"]}\nFDEs:{plot_fde_list}\nAverage_FDE:{metric_dict["average_fde"]}')
-
-            output_file.close()
-
             results_dict = {}
             results_dict["parameters"] = {
                 "iters": args.iters,
@@ -799,12 +747,7 @@ def run(args, verbose=False):
             results_dict["fde per task"] = plot_fde_list
             results_dict["average ade per task"] = metric_dict["average_ade"]
             results_dict["average fde per task"] = metric_dict["average_fde"]
-
-            utils.save_dict(results_dict, f"{args.r_dir}/{variation_of_clsgr_executed}_continual_learning_{args.replay}_{args.z_dim}_{args.batch_size}_{args.replay_batch_size}_{args.aug}_{args.main_model}_{args.dataset}_{args.seed}_{args.val}_{args.val_class}_{args.si}_{args.si_c}")
-
-            utils.save_dict_txt(
-                results_dict, f"{args.r_dir}/{variation_of_clsgr_executed}_continual_learning_{args.replay}_{args.z_dim}_{args.batch_size}_{args.replay_batch_size}_{args.aug}_{args.main_model}_{args.dataset}_{args.seed}_{args.val}_{args.val_class}_{args.si}_{args.si_c}")
-
+            
             # -close pdf
             pp.close()
 

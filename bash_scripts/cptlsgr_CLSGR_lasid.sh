@@ -6,7 +6,7 @@ python_script=$user_root_folder/LLM4CPTL/cptl_with_social_gr/main.py
 dataset=(ETH UCY inD INTERACTION)
 batch_size=64
 replay_batch_size=$batch_size
-iters=200
+iters=400
 
 # Conda-specific commands:
 source ~/miniconda3/etc/profile.d/conda.sh
@@ -30,8 +30,11 @@ nohup python $python_script \
   	--iters=$iters \
 	--time \
 	--metrics \
+	--use_codecarbon \
 	--use_kl_annealing \
 	--adapt_architecture_to_include_sequence_embedding \
+	--use_embeddings_buffer \
+	--use_uncertainty_filter \
 	> ../logs/tmp_out.log \
 	2> ../logs/tmp_err.log &
 	
@@ -39,11 +42,11 @@ nohup python $python_script \
 pid=$!
 
 # Renomeia os logs tempor�rios com o PID real
-mv ../logs/tmp_out.log ../logs/cptlsgr_CLSGR_output.log
-mv ../logs/tmp_err.log ../logs/cptlsgr_CLSGR_error.log
+mv ../logs/tmp_out.log ../logs/cptlsgr_CLSGR4_output.log
+mv ../logs/tmp_err.log ../logs/cptlsgr_CLSGR4_error.log
 
 echo "Process PID:  $pid"
-echo "Logs: ../logs/cptlsgr_output.log e ../logs/cptlsgr_error.log"
+echo "Logs: ../logs/cptlsgr_CLSGR4_output.log e ../logs/cptlsgr_CLSGR4_error.log"
 
 # Desvincula o processo do shell
 disown $pid

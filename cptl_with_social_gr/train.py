@@ -18,6 +18,7 @@ from helper.continual_learner import ContinualLearner
 from helper import evaluate
 from data.loader import data_loader, data_dset
 from data.trajectories import SceneBatch
+from helper.embedding_buffer import EmbeddingHistoryBuffer
 
 ###################################
 # Functions
@@ -172,7 +173,6 @@ def train_cl(args,
              fake_generator=None,
              gen_iters=0,
              gen_loss_cbs=list(),
-             fake_gen_loss_cbs=list(),
              loss_cbs=list(),
              val_loss_cbs=list(),
              eval_cbs=list(),
@@ -185,10 +185,10 @@ def train_cl(args,
 
     # Losses files for main and generative models:
     vae_losses_file = os.path.join(
-        args.r_dir, f"{variation_of_clsgr_executed}_losses_vae_{args.batch_size}_{args.iters}.csv")
+        args.r_dir, f"{variation_of_clsgr_executed}_losses_vae_{args.batch_size}_{args.iters}_{'-'.join(args.dataset)}.csv")
 
     main_model_losses_filename = os.path.join(
-        args.r_dir, f"{variation_of_clsgr_executed}_losses_main_{args.batch_size}_{args.iters}.csv")
+        args.r_dir, f"{variation_of_clsgr_executed}_losses_main_{args.batch_size}_{args.iters}_{'-'.join(args.dataset)}.csv")
 
     if os.path.exists(vae_losses_file):
         os.remove(vae_losses_file)
@@ -240,6 +240,8 @@ def train_cl(args,
                 model.register_buffer(
                     '{}_SI_prev_task'.format(n), p.data.clone())
 
+    history_buffer = EmbeddingHistoryBuffer()
+    
     # Tasks loop:
     for task, train_dataset in enumerate(train_datasets, start=1):
         current_dataset_name = train_dataset.dataset_name
@@ -294,20 +296,19 @@ def train_cl(args,
             if args.use_kl_annealing and generator is not None:
                 # Calcula o novo beta para esta época
                 new_beta = utils.get_cyclical_beta(
-                    epoch,
-                    iters_to_use,
+                    current_step=epoch,
+                    total_steps=iters_to_use,
                     n_cycles=4,
                     ratio=0.5,
-                    shape="sigmoid"
+                    shape="sigmoid",
+                    start=0.0,
+                    stop=0.01
                 )
 
                 # Atualiza o parâmetro dentro do modelo gerador
-                # Nota: Se generator for DataParallel, use generator.module.lamda_vl
-                generator.lamda_vl = new_beta * 0.01
+                generator.lamda_vl = new_beta
 
-                if epoch % 50 == 0:  # Log ocasional
-                    print(
-                        f"    [KL Annealing] Epoch {epoch}: Beta (lamda_vl) updated to {generator.lamda_vl:.4f}")
+                print(f"    [KL Annealing] Epoch {epoch}: Beta (lamda_vl) updated to {generator.lamda_vl:.4f}")
 
             dictionary_training_losses_main_model = {
                 'loss_total': [],
@@ -345,6 +346,11 @@ def train_cl(args,
                 sequence_embeddings = batch.sequence_embeddings
                 # Initialize replayed data variables:
                 x_rel_ = y_rel_ = seq_start_end_ = sequence_embeddings_ = None
+                hist_mu = None
+                hist_logvar = None
+                
+                if epoch == 1:
+                    history_buffer.accumulate_current_task(sequence_embeddings)
 
                 # Exact replay:
                 if Exact or (Generative and args.replay_model == "condition"):
@@ -393,17 +399,99 @@ def train_cl(args,
                         print(
                             f"            'previous_generator' (type: {type(previous_generator)}) is sampling replay data from 'replay_out' (type: {type(replay_out)}), built on dataset {train_dataset.dataset_name}")
 
+                        batch_size_fake = replay_out['obs_traj_rel'].shape[1]
+                        
+                        if args.use_embeddings_buffer:
+                            try:
+                                historical_embeddings, hist_mu, hist_logvar = history_buffer.sample_embeddings(batch_size_fake, device)
+
+                                print(f"            Sampling historical embeddings from 'history_buffer' for replay...")
+                            
+                            except ValueError:
+                                historical_embeddings = replay_out['sequence_embedding'].to(device)
+                                hist_mu, hist_logvar = None, None
+                                print(f"            History buffer is empty, using current batch's sequence embeddings for replay...")
+                        else:
+                            historical_embeddings = replay_out['sequence_embedding'].to(device)
+                            hist_mu, hist_logvar = None, None
+                            
+                        if not args.use_prior_adaptation:
+                            hist_mu, hist_logvar = None, None
+                            
                         replay_traj = previous_generator.sample(
                             replay_out['obs_traj_rel'].to(device),
                             replay_out['obs_traj'].to(device),
                             replay_out['seq_start_end'].to(device),
-                            replay_out['sequence_embedding'].to(device)
+                            historical_embeddings,
+                            mu_prior=hist_mu,
+                            logvar_prior=hist_logvar
                         )
 
                         x_ = replay_traj[0]
                         x_rel_ = replay_traj[1]
                         seq_start_end_ = replay_traj[2]
                         sequence_embeddings_ = replay_traj[3]
+                        
+                        if args.use_uncertainty_filter:
+                            print(f"            [Uncertainty Filter] Validating {x_rel_.shape[1]} generated trajectories...")
+
+                            # Entra em modo de avaliação para não interferir em gradientes
+                            previous_generator.eval()
+                            with torch.no_grad():
+                                # 1. O VAE avalia a qualidade das próprias trajetórias (Auto-reconstrução)
+                                recon_batch, _, _, _ = previous_generator(
+                                    x_rel_,
+                                    seq_start_end_,
+                                    sequence_embedding=sequence_embeddings_
+                                )
+
+                                # 2. Calcula o Erro de Reconstrução por pedestre (MSE)
+                                # Shape original: [seq_len, batch_size, 2] -> sum(dim=2) -> sum(dim=0) = [batch_size]
+                                recon_error = ((x_rel_ - recon_batch)
+                                            ** 2).sum(dim=2).sum(dim=0)
+
+                                # 3. Limiar dinâmico: Média + 1 Desvio Padrão
+                                # (unbiased=False previne retorno de NaN se o batch tiver tamanho 1 por algum motivo)
+                                threshold = recon_error.mean() + recon_error.std(unbiased=False)
+
+                                # 4. Máscara de aprovação: retém apenas quem tem erro menor ou igual ao limiar
+                                accepted_mask = recon_error <= threshold
+
+                                # Fallback de segurança: garantir que o batch nunca fique 100% vazio e quebre a rede
+                                if accepted_mask.sum() == 0:
+                                    best_idx = torch.argmin(recon_error)
+                                    accepted_mask[best_idx] = True
+
+                                # 5. Filtrar Tensors de Trajetória e Embedding
+                                x_rel_ = x_rel_[:, accepted_mask, :]
+                                x_ = x_[:, accepted_mask, :]
+                                sequence_embeddings_ = sequence_embeddings_[
+                                    accepted_mask]
+                                if hist_mu is not None:
+                                    hist_mu = hist_mu[accepted_mask]
+                                if hist_logvar is not None:
+                                    hist_logvar = hist_logvar[accepted_mask]
+
+                                # 6. Recalcular os agrupamentos das cenas (Social Pooling Constraints)
+                                new_seq_start_end = []
+                                curr_start = 0
+                                for start, end in seq_start_end_:
+                                    num_accepted = accepted_mask[start:end].sum(
+                                    ).item()
+                                    if num_accepted > 0:
+                                        new_seq_start_end.append(
+                                            [curr_start, curr_start + num_accepted])
+                                        curr_start += num_accepted
+
+                                # Substitui o tensor antigo pelo novo re-mapeado, mantendo no mesmo device
+                                seq_start_end_ = torch.tensor(
+                                    new_seq_start_end,
+                                    dtype=seq_start_end_.dtype,
+                                    device=seq_start_end_.device
+                                )
+
+                            print(
+                                f"            [Uncertainty Filter] Kept {x_rel_.shape[1]} highly reliable trajectories (Discarded {(~accepted_mask).sum().item()} hallucinations).")
 
                         print(
                             f"            Number of trajectories replayed: {x_rel_.shape[1]}")
@@ -481,7 +569,9 @@ def train_cl(args,
                         y_=y_rel_,
                         seq_start_end_=seq_start_end_,
                         sequence_embedding_=sequence_embeddings_,
-                        rnt=1./task
+                        rnt=1./task,
+                        mu_prior_r=hist_mu,         # <--- INJEÇÃO BooVAE
+                        logvar_prior_r=hist_logvar  # <--- INJEÇÃO BooVAE
                     )
 
                     dictionary_training_losses_generative_model['loss_total'].append(
@@ -526,7 +616,7 @@ def train_cl(args,
                 if os.path.exists(file_dir) is False:
                     os.mkdir(file_dir)
                 filename = os.path.join(
-                    file_dir, f"{args.r_dir}/{variation_of_clsgr_executed}_{args.method}_{args.replay}_{task}_model_{args.dataset}_{batch_size}_{args.seed}_{epoch}_{args.val}_{args.val_class}_{args.si}_{args.si_c}.path")
+                    file_dir, f"{args.r_dir}/{variation_of_clsgr_executed}_model_task{task}_epoch{epoch}_{args.iters}_{args.batch_size}_{'-'.join(args.dataset)}.path")
 
                 if args.val_class == 'current':
                     val_dataset = data_loader(
@@ -534,10 +624,10 @@ def train_cl(args,
                     ade_current, loss_val = utils.validate_cl(
                         args, model, val_dataset, epoch)
                     # save val loss
-                    val_loss_file = open("{}/{}_loss_val_{}_{}_{}_{}.txt".format(
-                        args.r_dir, variation_of_clsgr_executed, args.iters, args.batch_size, args.replay, args.val_class), 'a')
-                    val_loss_file.write('{}: {}\n'.format(epoch, loss_val))
-                    val_loss_file.close()
+                    #val_loss_file = open("{}/{}_loss_val_{}_{}_{}_{}.txt".format(
+                        #args.r_dir, variation_of_clsgr_executed, args.iters, args.batch_size, args.replay, args.val_class), 'a')
+                    #val_loss_file.write('{}: {}\n'.format(epoch, loss_val))
+                    #val_loss_file.close()
                     loss_val_dict_main = {'loss_val': loss_val}
                     for val_loss_cb in val_loss_cbs:
                         if val_loss_cb is not None:
@@ -552,7 +642,7 @@ def train_cl(args,
                         torch.save(model.state_dict(), filename)
 
                         shutil.copyfile(
-                            filename, f"{args.r_dir}/{variation_of_clsgr_executed}_{args.method}_{args.replay}_{task}_model_{args.dataset}_{batch_size}_{args.seed}_{args.val}_{args.val_class}_{args.si}_{args.si_c}.path")
+                            filename, f"{args.r_dir}/{variation_of_clsgr_executed}_model_task{task}_{args.iters}_{args.batch_size}_{'-'.join(args.dataset)}.path")
 
                 if args.val_class == 'all':
                     if generator is None:
@@ -573,8 +663,8 @@ def train_cl(args,
 
                             torch.save(model.state_dict(), filename)
 
-                            shutil.copyfile(filename,
-                                            f"{args.r_dir}/{variation_of_clsgr_executed}_{args.method}_{args.replay}_{task}_model_{args.dataset}_{batch_size}_{args.seed}_{args.val}_{args.val_class}_{args.si}_{args.si_c}.path")
+                            shutil.copyfile(
+                                filename, f"{args.r_dir}/{variation_of_clsgr_executed}_model_task{task}_{args.iters}_{args.batch_size}_{'-'.join(args.dataset)}.path")
                     else:
                         if task >= 2:
                             ade_previous = 0
@@ -607,8 +697,8 @@ def train_cl(args,
 
                             torch.save(model.state_dict(), filename)
 
-                            shutil.copyfile(filename,
-                                            f"{args.r_dir}/{variation_of_clsgr_executed}_{args.method}_{args.replay}_{task}_model_{args.dataset}_{batch_size}_{args.seed}_{args.val}_{args.val_class}_{args.si}_{args.si_c}.path")
+                            shutil.copyfile(
+                                filename, f"{args.r_dir}/{variation_of_clsgr_executed}_model_task{task}_{args.iters}_{args.batch_size}_{'-'.join(args.dataset)}.path")
 
                 if args.val_class == 'replay':
                     if generator is None:
@@ -629,8 +719,8 @@ def train_cl(args,
 
                             torch.save(model.state_dict(), filename)
 
-                            shutil.copyfile(filename,
-                                            f"{args.r_dir}/{variation_of_clsgr_executed}_{args.method}_{args.replay}_{task}_model_{args.dataset}_{batch_size}_{args.seed}_{args.val}_{args.val_class}_{args.si}_{args.si_c}.path")
+                            shutil.copyfile(
+                                filename, f"{args.r_dir}/{variation_of_clsgr_executed}_model_task{task}_{args.iters}_{args.batch_size}_{'-'.join(args.dataset)}.path")
 
                     else:
                         if task >= 2:
@@ -660,8 +750,8 @@ def train_cl(args,
 
                             torch.save(model.state_dict(), filename)
 
-                            shutil.copyfile(filename,
-                                            f"{args.r_dir}/{variation_of_clsgr_executed}_{args.method}_{args.replay}_{task}_model_{args.dataset}_{batch_size}_{args.seed}_{args.val}_{args.val_class}_{args.si}_{args.si_c}.path")
+                            shutil.copyfile(
+                                filename, f"{args.r_dir}/{variation_of_clsgr_executed}_model_task{task}_{args.iters}_{args.batch_size}_{'-'.join(args.dataset)}.path")
 
             else:
                 print(
@@ -792,6 +882,29 @@ def train_cl(args,
         print(
             f"    Completed task {task}, dataset {current_dataset_name} in {elapsed_time_for_this_task:.2f} seconds")
 
+        # --- IMPLEMENTAÇÃO BooVAE: Extração do Prior Global da Tarefa ---
+        if generator is not None and args.use_prior_adaptation:
+            print(f'    [BooVAE] Extraindo o Prior Latente global da tarefa {task}...')
+            generator.eval()
+            all_mu, all_logvar = [], []
+            with torch.no_grad():
+                for batch in training_dataset:  # Passagem rápida pelos dados reais
+                    b = SceneBatch(batch, device='cuda')
+                    _, mu, logvar, _ = generator(
+                        b.obs_traj_rel, b.seq_start_end, sequence_embedding=b.sequence_embeddings)
+                    all_mu.append(mu.cpu())
+                    all_logvar.append(logvar.cpu())
+
+            # Tira a média de todos os pedestres para encontrar o centro exato da distribuição deste mapa
+            task_mu = torch.cat(all_mu, dim=0).mean(dim=0, keepdim=True)
+            task_logvar = torch.cat(all_logvar, dim=0).mean(dim=0, keepdim=True)
+
+            history_buffer.commit_task(task_mu, task_logvar)
+            print(f'    [BooVAE] Prior ancorado no Histórico!')
+        else:
+            history_buffer.commit_task(None, None)
+        # ----------------------------------------------------------------
+        
         elapsed_time_for_this_task = progress.format_dict['elapsed']
         elpased_time_for_each_task.append(elapsed_time_for_this_task)
 
@@ -819,7 +932,7 @@ def train_cl(args,
 
             file_dir = os.path.dirname(__file__)
             filename = os.path.join(
-                file_dir, f"{args.r_dir}/{variation_of_clsgr_executed}_{args.method}_{args.replay}_{task}_model_{args.dataset}_{batch_size}_{args.seed}_{args.val}_{args.val_class}_{args.si}_{args.si_c}.path")
+                file_dir, f"{args.r_dir}/{variation_of_clsgr_executed}_mainModelCheckpoint_task{task}_{model.name}_{args.iters}_{args.batch_size}_{'-'.join(args.dataset)}.path")
 
             torch.save(model.state_dict(), filename)
             
@@ -827,7 +940,7 @@ def train_cl(args,
                 print(
                     f"    Saving generative model after finishing task {task}, dataset {current_dataset_name}")
 
-                filename_generator = filename.replace("_model_", "_generativeModelCheckpoint_")
+                filename_generator = filename.replace("_mainModelCheckpoint_", "_generativeModelCheckpoint_")
 
                 torch.save(generator.state_dict(), filename_generator)
 
@@ -862,7 +975,7 @@ def train_cl(args,
         np.savetxt(
             os.path.join(
                 args.r_dir,
-                f"{variation_of_clsgr_executed}_ADE_matrix_{args.batch_size}_{args.iters}.txt"
+                f"{variation_of_clsgr_executed}_ADE_matrix_{args.iters}_{args.batch_size}_{'-'.join(args.dataset)}.txt"
             ),
             ade_matrix
         )
@@ -870,7 +983,7 @@ def train_cl(args,
         np.savetxt(
             os.path.join(
                 args.r_dir,
-                f"{variation_of_clsgr_executed}_FDE_matrix_{args.batch_size}_{args.iters}.txt"
+                f"{variation_of_clsgr_executed}_FDE_matrix_{args.iters}_{args.batch_size}_{'-'.join(args.dataset)}.txt"
             ),
             fde_matrix
         )

@@ -297,13 +297,6 @@ def validate_cl(args, model, val_loader, epoch, writer=None):
 
             losses_val.update(loss_val.item(), num_trajs)
 
-            # = sum(ade_)
-            #fde_sum = sum(fde_)
-            #ade_outer.append(ade_sum)
-            #fde_outer.append(fde_sum)
-        #ade = sum(ade_outer).item() / (total_traj * pred_len)
-        #fde = sum(fde_outer).item() / (total_traj)
-
     return ade.avg, fde.avg, losses_val.avg
 
 def validate_cl_replay(args, model, x_rel_val, y_rel_val, seq_start_end_val):
@@ -399,10 +392,14 @@ def variation_of_clsgr_being_executed(args):
                 variation_of_clsgr_executed += "eKLAN"
             if args.adapt_architecture_to_include_sequence_embedding:
                 variation_of_clsgr_executed += "eModalLLM"
-            if args.use_gradient_clipping:
-                variation_of_clsgr_executed += "eGC"
-            if args.use_skip_connection:
-                variation_of_clsgr_executed += "eSC"
+            if args.use_embeddings_buffer:
+                variation_of_clsgr_executed += "Buffer"
+            if args.use_uncertainty_filter:
+                variation_of_clsgr_executed += "eUncFilter"
+            if args.use_prior_adaptation:
+                variation_of_clsgr_executed += "eBoo"
+            if args.use_dc_vampprior:
+                variation_of_clsgr_executed += "eVamp"
 
     return variation_of_clsgr_executed
 
@@ -433,51 +430,57 @@ def clean_text(text: str) -> str:
     return text
 
 
-def get_cyclical_beta(current_step, total_steps, n_cycles=1, ratio=0.0, shape="linear"):
+def get_cyclical_beta(current_step, total_steps, n_cycles=4, ratio=0.5, shape="linear", start=0.0, stop=1.0):
     """
-    Calcula o valor de Beta (KL weight) usando agendamento cíclico.
+    Calcula o valor de Beta (KL weight) usando agendamento cíclico sob demanda.
     
     Args:
         current_step (int): Época ou iteração atual.
         total_steps (int): Total de épocas ou iterações planejadas.
-        n_cycles (int): Quantos ciclos 'sobe-mantém' acontecerão durante o treino (M).
-        ratio (float): Proporção do ciclo usada para subir de 0 a 1 (R). 
-                       O restante (1-R) mantém em 1.
+        n_cycles (int): Quantos ciclos 'sobe-mantém' acontecerão durante o treino.
+        ratio (float): Proporção do ciclo usada para subir de start a stop (R). 
+                       O restante (1-R) mantém em stop.
+        shape (str): Formato da curva de subida ('linear', 'sigmoid', 'quadratic', 'cosine').
+        start (float): Valor mínimo do peso KL no início do ciclo.
+        stop (float): Valor máximo do peso KL no platô do ciclo.
     
     Returns:
         float: Valor de beta para o passo atual.
     """
-    # Evita divisão por zero
-    if total_steps == 0:
-        return 1.0
+    # Evita divisão por zero ou ratio nulo, retornando o valor máximo por segurança
+    if total_steps == 0 or ratio <= 1e-9:
+        return stop
 
-    if ratio <= 1e-9:
-        return 1.0
-
-    # Tamanho de um ciclo
+    # Tamanho de um ciclo em passos
     period = total_steps / n_cycles
 
-    # Onde estamos dentro do ciclo atual (de 0.0 a 1.0)
+    # Posição relativa dentro do ciclo atual (tau vai de 0.0 a 1.0)
     step_in_cycle = current_step % period
     tau = step_in_cycle / period
 
-    # Lógica Cíclica: Linear até 'ratio', depois constante em 1.0
+    # Fase de Platô: mantém no valor máximo (stop)
     if tau > ratio:
-        beta = 1.0
+        return stop
+
+    # Fase de Subida: calcula o progresso de 0.0 a 1.0
+    progress = tau / ratio
+
+    # Define o formato da curva (base_beta vai de 0.0 a 1.0)
+    if shape == 'linear':
+        base_beta = progress
+    elif shape == 'sigmoid':
+        # Sigmoide ajustada para ir de ~0 a ~1 suavemente no intervalo
+        base_beta = 1 / (1 + math.exp(-12 * (progress - 0.5)))
+    elif shape == 'quadratic':
+        # Sobe lentamente no início e acelera
+        base_beta = progress ** 2
+    elif shape == 'cosine':
+        # Metade de uma onda cosseno (suave no início e no fim)
+        base_beta = 0.5 - 0.5 * math.cos(progress * math.pi)
     else:
-        # Sobe linearmente de 0 a 1
-        progress = tau / ratio
-        
-        if shape == 'linear':
-            beta = progress
-        elif shape == 'sigmoid':
-            # Sigmoide ajustada para ir de 0 a 1 suavemente no intervalo
-            # Muito mais lento no início que o linear
-            beta = 1 / (1 + math.exp(-12 * (progress - 0.5)))
-        elif shape == 'quadratic':
-            # Sobe lentamente no início e acelera (curva x^2)
-            beta = progress ** 2
-        else:
-            beta = progress
+        base_beta = progress
+
+    # Escala o valor de [0, 1] para o intervalo [start, stop]
+    beta = start + (stop - start) * base_beta
 
     return beta
