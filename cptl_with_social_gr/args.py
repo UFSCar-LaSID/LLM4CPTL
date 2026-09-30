@@ -4,34 +4,34 @@
 # Imports and packages
 ###################################
 import argparse
-import os
-import yaml
 
 ###################################
 # Functions
 ###################################
 
+
 def _int_tuple(arg):
     """Helper para converter string '8,8' em tupla (8, 8)"""
     return tuple(map(int, arg.split(',')))
 
+
 def add_base_args(parser: argparse.ArgumentParser):
     """Argumentos fundamentais de ambiente e seeds."""
     group = parser.add_argument_group('Base configuration')
-    
+
     group.add_argument(
         '--get-stamp',
         action='store_true',
         help="print param-stamp & exit"
     )
-    
+
     group.add_argument(
         '--seed',
         type=int,
         default=72,
         help="random seed"
     )
-    
+
     group.add_argument(
         '--no-gups',
         action='store_false',
@@ -44,27 +44,27 @@ def add_base_args(parser: argparse.ArgumentParser):
         default=0,
         type=int
     )
-    
+
     group.add_argument(
         '--results-dir',
         type=str,
         default='./results',
         dest='r_dir'
     )
-    
+
     group.add_argument(
         '--plot-dir',
         type=str,
         default='./plots',
         dest='p_dir'
     )
-    
+
     group.add_argument(
         '--log_dir',
         default="ETH",
         help="Directory containing logging file"
     )
-    
+
     return parser
 
 
@@ -72,14 +72,26 @@ def add_dataset_args(parser: argparse.ArgumentParser):
     """Argumentos relacionados ao carregamento e processamento de dados."""
     group = parser.add_argument_group('Dataset parameters')
 
-    dataset_choices = ['ETH', 'UCY', 'inD', 'INTERACTION']
+    dataset_choices = ['ETH', 'UCY', 'inD', 'INTERACTION', 'SDD']
     group.add_argument(
         '--dataset',
         type=str,
         nargs="+",
         choices=dataset_choices
     )
-    
+
+    group.add_argument(
+        '--dataset_name_train',
+        type=str,
+        choices=dataset_choices
+    )
+
+    group.add_argument(
+        '--dataset_name_test',
+        type=str,
+        choices=dataset_choices
+    )
+
     splits_choices = ['train', 'val', 'test']
     group.add_argument(
         '--split',
@@ -87,13 +99,13 @@ def add_dataset_args(parser: argparse.ArgumentParser):
         nargs='+',
         default=splits_choices
     )
-    
+
     group.add_argument(
         '--min_ped',
         type=int,
         default=1
     )
-    
+
     group.add_argument(
         '--data-dir',
         type=str,
@@ -107,25 +119,25 @@ def add_dataset_args(parser: argparse.ArgumentParser):
         type=int,
         help="observed frame length"
     )
-    
+
     group.add_argument(
         '--pred_len',
         default=12,
         type=int,
         help="predicted frame length"
     )
-    
+
     group.add_argument(
         '--skip',
         default=1,
         type=int
     )
-    
+
     group.add_argument(
         '--delim',
         default='\t'
     )
-    
+
     group.add_argument(
         '--loader_num_workers',
         default=8,
@@ -138,7 +150,13 @@ def add_dataset_args(parser: argparse.ArgumentParser):
         default='none',
         choices=["none", "rotation"]
     )
-    
+
+    group.add_argument(
+        '--few_shot_percentage',
+        default=0.05,
+        type=float
+    )
+
     return parser
 
 
@@ -152,35 +170,35 @@ def add_training_args(parser: argparse.ArgumentParser):
         default='batch_learning',
         choices=['batch_learning', 'continual_learning']
     )
-    
+
     group.add_argument(
         '--iters',
         type=int,
         default=400,
         help="batches to optimize solver"
     )
-    
+
     group.add_argument(
         '--lr',
         type=float,
         default=0.001,
         help="learning rate"
     )
-    
+
     group.add_argument(
         '--batch_size',
         type=int,
         default=64,
         help="batch-size"
     )
-    
+
     group.add_argument(
         '--optimizer',
         type=str,
         choices=['adam', 'adam_reset', 'sgd'],
         default='adam'
     )
-    
+
     group.add_argument(
         '--val_epoch',
         default=150,
@@ -194,14 +212,14 @@ def add_training_args(parser: argparse.ArgumentParser):
         type=int,
         help="manual epoch number"
     )
-    
+
     group.add_argument(
         "--clip_gradient_max_norm",
         default=1.0,
         type=float,
         help=""
     )
-    
+
     group.add_argument(
         "--resume",
         default="",
@@ -209,26 +227,26 @@ def add_training_args(parser: argparse.ArgumentParser):
         metavar="PATH",
         help="path to latest checkpoint"
     )
-    
+
     group.add_argument(
         "--checkpoint_log",
         default=50,
         type=int,
         help="iters after which to save checkpoint"
     )
-    
+
     group.add_argument(
         "--print_every",
         default=10,
         type=int
     )
-    
+
     group.add_argument(
         "--use_codecarbon",
         action='store_true',
         help=""
     )
-    
+
     return parser
 
 
@@ -236,7 +254,7 @@ def add_model_args(parser: argparse.ArgumentParser):
     """Argumentos de arquitetura (LSTM, GAT, etc)."""
     group = parser.add_argument_group('Model Architecture')
 
-    model_choices = ["lstm", "gat"]
+    model_choices = ["lstm", "gat", "grnn", "star", "stgcnn", "snartf"]
     group.add_argument(
         '--main_model',
         default='lstm',
@@ -250,16 +268,16 @@ def add_model_args(parser: argparse.ArgumentParser):
         default=2,
         type=int
     )
-    
+
     group.add_argument(
         '--traj_lstm_hidden_size',
-        default=32,#32,
+        default=32,  # 32,
         type=int
     )
-    
+
     group.add_argument(
-        '--traj_lstm_output_size', 
-        default=32,#32,
+        '--traj_lstm_output_size',
+        default=32,  # 32,
         type=int
     )
 
@@ -270,57 +288,57 @@ def add_model_args(parser: argparse.ArgumentParser):
         default="4,1",
         help="Heads per layer (comma separated)"
     )
-    
+
     group.add_argument(
         "--hidden-units",
         type=str,
         default="16",
         help="Hidden units (comma separated)"
     )
-    
+
     group.add_argument(
         "--graph_network_out_dims",
-        type=int, 
+        type=int,
         default=32
     )
-    
+
     group.add_argument(
         "--graph_lstm_hidden_size",
         default=32,
         type=int
     )
-    
+
     group.add_argument(
         "--dropout",
         type=float,
         default=0.0
     )
-    
+
     group.add_argument(
         "--alpha",
         type=float,
         default=0.2,
         help="Alpha for leaky_relu"
     )
-    
+
     group.add_argument(
         "--mlp_dim",
         type=int,
         default=256,
         help="MLP dimension"
     )
-    
+
     group.add_argument(
         "--embedding_dim",
         type=int,
         default=32,
         help=""
     )
-    
+
     group.add_argument(
         "--bottleneck_dim",
         type=int,
-        default=32,#32,
+        default=32,  # 32,
         help=""
     )
 
@@ -330,64 +348,106 @@ def add_model_args(parser: argparse.ArgumentParser):
         default=(8,),
         type=_int_tuple
     )
-    
+
     group.add_argument(
         "--noise_type",
-        default="gaussian"
+        default="gaussian",
+        type=str,
     )
-    
+
     group.add_argument(
         "--noise_mix_type",
-        default="global"
+        default="global",
+        type=str,
     )
-    
+
+    group.add_argument(
+        "--main_model_checkpoint",
+        type=str,
+    )
+
+    group.add_argument(
+        "--generator_model_checkpoint",
+        type=str,
+    )
+
     return parser
 
 
 def add_llm_args(parser: argparse.ArgumentParser):
     """Argumentos específicos para Large Language Models."""
     group = parser.add_argument_group('LLM Configuration')
-    
+
     group.add_argument(
         "--adapt_architecture_to_include_sequence_embedding",
         action='store_true',
         help=""
     )
-    
+
     group.add_argument(
         '--sequence_embedding_compressed_dimension',
         type=int,
         default=64,
     )
-    
+
+    group.add_argument(
+        "--ablation_shuffle_embeddings",
+        action='store_true',
+        help=""
+    )
+
     group.add_argument(
         "--use_kl_annealing",
         action='store_true',
         help=""
     )
-    
+
     group.add_argument(
         "--use_embeddings_buffer",
         action='store_true',
         help=""
     )
-    
+
     group.add_argument(
         "--use_uncertainty_filter",
         action='store_true',
         help=""
     )
-    
+
+    group.add_argument(
+        "--do_analysis_on_uncertainty",
+        action='store_true',
+        help=""
+    )
+
     group.add_argument(
         "--use_prior_adaptation",
         action='store_true',
         help=""
     )
-    
+
     group.add_argument(
         "--use_dc_vampprior",
         action='store_true',
         help=""
+    )
+
+    group.add_argument(
+        "--disable_social_conditioning",
+        action='store_true',
+        help=""
+    )
+
+    group.add_argument(
+        "--use_ewc",
+        action='store_true',
+        help=""
+    )
+
+    group.add_argument(
+        '--ewc_lambda',
+        type=int,
+        default=0.5#5000
     )
 
     # Models
@@ -402,14 +462,23 @@ def add_llm_args(parser: argparse.ArgumentParser):
         type=str,
         default="Qwen/Qwen3-VL-Embedding-2B"
     )
-    
+
     group.add_argument(
         '--tokenizer_name',
         type=str,
         default='Qwen/Qwen3-VL-2B-Instruct',
         help="Hugging Face tokenizer name."
     )
-    
+
+    group.add_argument(
+        '--text_generation_restrictions',
+        type=str,
+        choices=["zeros", "simple", "naive", "blind", "vision_noinstructions",
+                 "vision_expert", "vision_fewshot"],
+        default="vision_expert",
+        help=""
+    )
+
     group.add_argument(
         '--local_model_generative_path',
         type=str,
@@ -426,9 +495,9 @@ def add_llm_args(parser: argparse.ArgumentParser):
     group.add_argument(
         '--max_model_len',
         type=int,
-        default=2048
+        default=2048#2048
     )
-    
+
     group.add_argument(
         '--max_num_seqs',
         type=int,
@@ -440,38 +509,32 @@ def add_llm_args(parser: argparse.ArgumentParser):
         type=float,
         default=0.8
     )
-    
+
     group.add_argument(
         '--top_p',
         type=float,
         default=0.95
     )
-    
+
     group.add_argument(
         '--quantization',
         type=str,
         choices=["bitsandbytes", "none"],
         default="none"
     )
-    
+
     group.add_argument(
         '--gpu_memory_utilization',
         type=float,
         default=0.6
     )
-    
-    group.add_argument(
-        '--use_few_shot',
-        action="store_true"
-    )
-    
+
     group.add_argument(
         '--repetition_penalty',
         type=float,
         default=1.2,
         help="Applies a penalty to repeated tokens. Higher values reduce the likelihood of repetition."
     )
-
 
     group.add_argument(
         '--max_tokens',
@@ -486,13 +549,13 @@ def add_llm_args(parser: argparse.ArgumentParser):
         default=True,
         help="If set, special tokens (e.g., <BOS>, <EOS>, <PAD>) will be removed from the generated output."
     )
-    
+
     group.add_argument(
         '--save_text_descriptions',
         action="store_true",
         help=""
     )
-    
+
     group.add_argument(
         '--normalize',
         action="store_true",
@@ -506,14 +569,14 @@ def add_llm_args(parser: argparse.ArgumentParser):
         type=int,
         help=""
     )
-    
+
     group.add_argument(
         '--output_dir',
         default="./datasets/preprocessed",
         type=str,
         help=""
     )
-    
+
     group.add_argument(
         '--prevent_model_download_from_hub',
         default=False,
@@ -533,9 +596,16 @@ def add_cl_replay_args(parser: argparse.ArgumentParser):
         '--replay',
         type=str,
         default='none',
-        choices=['offline', 'exact', 'generative', 'none', 'current', 'exemplars']
+        choices=['offline', 'exact', 'generative',
+                 'none', 'current', 'exemplars']
     )
-    
+
+    group.add_argument(
+        '--memory_buff_percentage',
+        type=float,
+        default=0.1
+    )
+
     group.add_argument(
         '--z_dim',
         type=int,
@@ -548,11 +618,13 @@ def add_cl_replay_args(parser: argparse.ArgumentParser):
         type=int,
         default=64
     )
+
     group.add_argument(
         '--g-iters',
         type=int,
         help="generator iters"
     )
+
     group.add_argument(
         '--lr_gen',
         type=float,
@@ -563,7 +635,7 @@ def add_cl_replay_args(parser: argparse.ArgumentParser):
     group.add_argument(
         '--replay_model',
         default='lstm',
-        type=str, 
+        type=str,
         choices=['lstm', 'vrnn', 'condition']
     )
 
@@ -573,14 +645,14 @@ def add_cl_replay_args(parser: argparse.ArgumentParser):
         action='store_true',
         help="Synaptic Intelligence"
     )
-    
+
     group.add_argument(
         '--c',
         type=float,
         dest="si_c",
         help="SI regularization strength"
     )
-    
+
     group.add_argument(
         '--epsilon',
         type=float,
@@ -599,32 +671,32 @@ def add_eval_args(parser: argparse.ArgumentParser):
         action='store_true',
         help="calculate extra metrics (BWT, forgetting)"
     )
-    
+
     group.add_argument(
         '--time',
         action='store_true',
         help="Keep track of total training time"
     )
-    
+
     group.add_argument(
         '--visdom',
         action='store_true',
         help="use visdom"
     )
-    
+
     group.add_argument(
         '--val',
         action='store_true',
         help="use validation data"
     )
-    
+
     group.add_argument(
         '--val_class',
         default='current',
         type=str,
         choices=['current', 'all', 'replay']
     )
-    
+
     group.add_argument(
         '--pdf',
         action='store_true'
@@ -643,7 +715,7 @@ def add_eval_args(parser: argparse.ArgumentParser):
         metavar="N",
         help="iters after which to plot loss"
     )
-    
+
     group.add_argument(
         '--prec-log',
         type=int,
@@ -672,6 +744,28 @@ def add_eval_args(parser: argparse.ArgumentParser):
         help="sample trajectories when evaluation model"
     )
 
+    parser.add_argument(
+        "--use_prior_logvar_clamp",
+        action="store_true"
+    )
+
+    parser.add_argument(
+        "--prior_logvar_min",
+        type=float,
+        default=-10.0
+    )
+
+    parser.add_argument(
+        "--prior_logvar_max",
+        type=float,
+        default=5.0
+    )
+
+    parser.add_argument(
+        "--latent_only_decoder",
+        action="store_true"
+    )
+
     return parser
 
 
@@ -684,61 +778,7 @@ def get_parser(description="Standard experiment parser"):
     return parser
 
 
-def load_yaml_config(args):
-    """
-    Carrega o YAML estruturado por Dataset e o converte para 
-    os mapeamentos específicos esperados.
-    """
-    if not os.path.exists(args.config_file):
-        print(
-            f"Warning: Config '{args.config_file}' not found. Using empty defaults.")
-        args.llm_motion_cues_mapping = {}
-        args.llm_sequences_embeddings_mapping = {}
-        return args
-
-    try:
-        with open(args.config_file, 'r') as f:
-            config_data = yaml.safe_load(f)
-
-        # Inicializa os dicionários de destino
-        motion_cues_map = {}
-        sequences_emb_map = {}
-        clusters_ids_map = {}  # Adicionado caso precise usar
-
-        # Itera sobre cada dataset (ETH, UCY, etc.)
-        # dataset_key é "ETH", "UCY", etc.
-        # dataset_config é o dicionário com "llm_motion_cues", "sequences_embeddings", etc.
-        for dataset_key, dataset_config in config_data.items():
-
-            # 1. Carregar Motion Cues
-            if "llm_motion_cues" in dataset_config:
-                motion_cues_map[dataset_key] = dataset_config["llm_motion_cues"]
-
-            # 2. Carregar Embeddings
-            # A estrutura no YAML é:
-            # sequences_embeddings:
-            #   train: /path/to/train.pt
-            #   val: /path/to/val.pt
-            if "sequences_embeddings" in dataset_config:
-                # Salvamos o dicionário inteiro {'train': ..., 'val': ...}
-                # O loader do dataset precisará saber acessar ['train'] ou ['val']
-                sequences_emb_map[dataset_key] = dataset_config["sequences_embeddings"]
-
-            # 3. Carregar Clusters (se necessário)
-            if "clusters_ids" in dataset_config:
-                clusters_ids_map[dataset_key] = dataset_config["clusters_ids"]
-
-        # Injeta os dicionários processados no namespace args
-        args.llm_sequences_embeddings_mapping = sequences_emb_map
-        print(sequences_emb_map)
-
-    except yaml.YAMLError as exc:
-        print(f"Error while reading YAML file: {exc}")
-        raise
-
-    return args
-
-def get_all_args(load_yaml: bool = False):
+def get_all_args():
     """
     Atalho para carregar TODOS os argumentos (legado/main script).
     """
@@ -752,8 +792,5 @@ def get_all_args(load_yaml: bool = False):
     add_eval_args(parser)
 
     args = parser.parse_args()
-    
-    if load_yaml:
-        args = load_yaml_config(args)
 
     return args
