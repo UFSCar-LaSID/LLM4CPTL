@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-set -e
+set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
@@ -11,7 +11,13 @@ LOG_DIR="${PROJECT_ROOT}/logs"
 CONDA_ENV="${CONDA_ENV:-cptlsgr310_vllm}"
 
 TEXT_GENERATION_RESTRICTIONS="${TEXT_GENERATION_RESTRICTIONS:-blind}"
-DATASETS=(ETH UCY inD INTERACTION SDD)
+DATASETS=(
+    ETH
+    UCY
+    inD
+    INTERACTION
+    SDD
+)
 
 if ! command -v conda >/dev/null 2>&1; then
     echo "Error: Conda was not found in PATH."
@@ -30,12 +36,11 @@ ERR_LOG="${LOG_DIR}/preprocessing_mllm_image2text_error.log"
 
 cd "${PROJECT_ROOT}/cptl_with_social_gr"
 
-nohup conda run -n "${CONDA_ENV}" \
-    python "${PYTHON_SCRIPT}" \
+nohup conda run --no-capture-output -n "${CONDA_ENV}" \
+    python -u "${PYTHON_SCRIPT}" \
     --dataset "${DATASETS[@]}" \
     --text_generation_restrictions "${TEXT_GENERATION_RESTRICTIONS}" \
     --quantization bitsandbytes \
-    --save_text_descriptions \
     > "${OUT_LOG}" \
     2> "${ERR_LOG}" &
 
