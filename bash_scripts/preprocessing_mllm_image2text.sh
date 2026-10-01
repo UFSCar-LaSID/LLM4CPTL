@@ -1,41 +1,48 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
-# Variables:
-user_root_folder=/home/matheus
-python_script=$user_root_folder/LLM4CPTL/cptl_with_social_gr/mllm_image2text.py
-dataset=(ETH UCY)
-split=(train val test)
+set -e
 
-# Conda-specific commands:
-source ~/miniconda3/etc/profile.d/conda.sh
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
 
-# Virtual environment:
-conda activate cptlsgr310_vllm
+PYTHON_SCRIPT="${PROJECT_ROOT}/cptl_with_social_gr/mllm_image2text.py"
+LOG_DIR="${PROJECT_ROOT}/logs"
 
-# Reading, writing, and execution permission for the main script of this job:
-chmod 777 $python_script
+CONDA_ENV="${CONDA_ENV:-cptlsgr310_vllm}"
 
-# Go to the main folder of the project:
-cd $user_root_folder/LLM4CPTL/cptl_with_social_gr
+TEXT_GENERATION_RESTRICTIONS="${TEXT_GENERATION_RESTRICTIONS:-blind}"
+DATASETS=(ETH UCY inD INTERACTION SDD)
 
-# Main script execution:
-nohup python $python_script \
-	--dataset "${dataset[@]}" \
-	--save_text_descriptions \
-	--quantization bitsandbytes \
-	> ../logs/tmp_out.log \
-	2> ../logs/tmp_err.log &
+if ! command -v conda >/dev/null 2>&1; then
+    echo "Error: Conda was not found in PATH."
+    exit 1
+fi
 
-# Captures the Python PID:
-pid=$!
+if [[ ! -f "${PYTHON_SCRIPT}" ]]; then
+    echo "Error: Python script not found: ${PYTHON_SCRIPT}"
+    exit 1
+fi
 
-# Rename log files:
-mv ../logs/tmp_out.log ../logs/cptlsgr_mllm_image2text_output.log
-mv ../logs/tmp_err.log ../logs/cptlsgr_mllm_image2text_error.log
+mkdir -p "${LOG_DIR}"
 
-echo "Process PID:  $pid"
-echo "Logs: ../logs/cptlsgr_mllm_image2text_output.log e ../logs/cptlsgr_mllm_image2text_error.log"
+OUT_LOG="${LOG_DIR}/preprocessing_mllm_image2text_output.log"
+ERR_LOG="${LOG_DIR}/preprocessing_mllm_image2text_error.log"
 
-disown $pid
+cd "${PROJECT_ROOT}/cptl_with_social_gr"
 
-conda deactivate
+nohup conda run -n "${CONDA_ENV}" \
+    python "${PYTHON_SCRIPT}" \
+    --dataset "${DATASETS[@]}" \
+    --text_generation_restrictions "${TEXT_GENERATION_RESTRICTIONS}" \
+    --quantization bitsandbytes \
+    --save_text_descriptions \
+    > "${OUT_LOG}" \
+    2> "${ERR_LOG}" &
+
+PID=$!
+
+echo "Process PID: ${PID}"
+echo "Output log: ${OUT_LOG}"
+echo "Error log:  ${ERR_LOG}"
+
+disown "${PID}"
