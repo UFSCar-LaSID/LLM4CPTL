@@ -18,6 +18,10 @@ By Matheus V. V. Berto, Markus Geisler, and Tiago A. Almeida.
 * [Key contributions](#key-contributions)
 * [Installation](#installation)
 * [Usage](#usage)
+  * [Preprocessing](#preprocessing)
+  * [Main experiments](#main-experiments)
+  * [Consolidate results](#consolidate-results)
+  * [Ablation studies](#ablation-studies)
 * [Acknowledgments](#acknowledgments)
 * [BibTeX](#bibtex)
 * [Complete work](#complete-work)
@@ -206,6 +210,8 @@ Continual learning enables pedestrian trajectory predictors to adapt across evol
 
 ## <a name="usage"></a>💻​ Usage
 
+ ### <a name="preprocessing"></a>Preprocessing
+
  1. Before running the main experiments (training), the physical-scene information must be preprocessed in two sequential steps. First, generate the textual descriptions:
      ```bash
      TEXT_GENERATION_RESTRICTIONS=vision_expert \
@@ -216,6 +222,12 @@ Continual learning enables pedestrian trajectory predictors to adapt across evol
      TEXT_GENERATION_RESTRICTIONS=vision_expert \
      bash bash_scripts/preprocessing_mllm_text2embedding.sh
      ```
+     
+ ### <a name="main-experiments"></a>Main experiments
+
+ ### <a name="consolidate-results"></a>Consolidate results
+
+ ### <a name="ablation-studies"></a>Ablation studies
 
 ## <a name="acknowledgments"></a>🤝 Acknowledgments
 The authors gratefully acknowledge the support provided by the Brazilian agency Foundation of Research Support - Fundep (Conecta 2030, Rota 2030/Linha V, grant 29271.02.01/2022.04-00).
