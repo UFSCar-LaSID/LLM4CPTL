@@ -62,7 +62,7 @@ Continual learning enables pedestrian trajectory predictors to adapt across evol
     chmod +x bash_scripts/*.sh
     ```
 
-7. Our work is based on and uses the continual trajectory prediction benchmark (CTPB) introduced by Wang _et al._ [X] and includes pedestrian data from the following datasets: ETH [X], UCY [X], inD [X], and INTERACTION [X]. In order to correctly set up the employed data, access [their original repository](https://github.com/tue-mps/cptl_with_social_gr), download their `datasets` folder and place it into our `cptl_with_social_gr/datasets/` folder. We also make use of the Stanford Drone Dataset (SDD), which is available for complete dataset from [this link](https://cvgl.stanford.edu/projects/uav_data/) - optionally, you can manually download only annotations files using [this link](https://www.kaggle.com/datasets/aryashah2k/stanford-drone-dataset) - and must be placed in a new folder `cptl_with_social_gr/datasets/sdd_raw`. After downloading all the mentioned datasets, the `cptl_with_social_gr/datasets/` directory should follow the structure below:
+7. Our work is based on and uses the continual trajectory prediction benchmark (CTPB) introduced by Wang _et al._ [X] and includes pedestrian data from the following datasets: ETH [X], UCY [X], inD [X], and INTERACTION [X]. In order to correctly set up the employed data, access [their original repository](https://github.com/tue-mps/cptl_with_social_gr), download their `datasets` folder and place it into our `cptl_with_social_gr/datasets/` folder. We also make use of the Stanford Drone Dataset (SDD), which is available for complete download from [this link](https://cvgl.stanford.edu/projects/uav_data/) - optionally, you can manually download only annotations files using [this link](https://www.kaggle.com/datasets/aryashah2k/stanford-drone-dataset) - and must be placed in a new folder `cptl_with_social_gr/datasets/sdd_raw`. After downloading all the mentioned datasets, the `cptl_with_social_gr/datasets/` directory should follow the structure below:
    
     <details>
     <summary><strong>Dataset structure</strong></summary>
@@ -205,6 +205,17 @@ Continual learning enables pedestrian trajectory predictors to adapt across evol
     ```
 
 ## <a name="usage"></a>💻​ Usage
+
+ 1. Before running the main experiments (training), the physical-scene information must be preprocessed in two sequential steps. First, generate the textual descriptions:
+     ```bash
+     TEXT_GENERATION_RESTRICTIONS=vision_expert \
+     bash bash_scripts/preprocessing_mllm_image2text.sh
+     ```
+     Wait for this script to finish before proceeding, as the next step depends on the generated description files. Then, generate the corresponding fixed-size embeddings:
+     ```bash
+     TEXT_GENERATION_RESTRICTIONS=vision_expert \
+     bash bash_scripts/preprocessing_mllm_text2embedding.sh
+     ```
 
 ## <a name="acknowledgments"></a>🤝 Acknowledgments
 The authors gratefully acknowledge the support provided by the Brazilian agency Foundation of Research Support - Fundep (Conecta 2030, Rota 2030/Linha V, grant 29271.02.01/2022.04-00).
