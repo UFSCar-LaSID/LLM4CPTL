@@ -58,27 +58,6 @@ PROMPT_REGISTRY = {
             "- The description must be a plain-text, cohesive paragraph without conversational filler (e.g, 'In this image...', 'The described terrain...', 'Here is the description...', 'This view captures...')."
         ),
         "user": "Given the following reference image for a pedestrian trajectory scenario, generate the aforementioned semantic textual description:"
-    },
-    
-    "vision_fewshot": {
-        "use_image": True,
-        "system": (
-            "You are an expert in urban spatial scenarios analysis and pedestrian dynamics. "
-            "Your task is to analyze a provided image of an urban scene from a trajectory dataset "
-            "and generate a rich, objective, and semantic textual description of its static physical geometry.\n\n"
-            "Focus explicitly on:\n"
-            "1. Walkable areas (e.g., sidewalks, plazas, crosswalks, footpaths).\n"
-            "2. Non-walkable areas, physical obstacles (e.g., roads with vehicular traffic, buildings, fences, walls, parked vehicles) and where they are located in the scenario.\n"
-            "3. Visible spatial layout and topological connections.\n\n"
-            "CRITICAL CONSTRAINTS:\n"
-            "- Describe ONLY the visible and static environment.\n"
-            "- Output a single cohesive paragraph."
-        ),
-        "user": (
-            "Here is an example of the expected output format:\n"
-            "**Example Output:** 'The scenario consists of a central paved walkway bounded by grass on both sides. The top-left corner features a building entrance, while the bottom section connects to a wider plaza. There are no moving vehicles, but static benches obstruct the far-right pedestrian path.'\n\n"
-            "Now, given the following reference image for a pedestrian trajectory scenario, generate the semantic textual description:"
-        )
     }
 }
 
@@ -199,8 +178,10 @@ def main(args: argparse.Namespace):
             else:
                 # Recupera as configurações do dicionário central
                 config = PROMPT_REGISTRY[requested_mode]
-                reference_image = dataset.sequences_image[sequence_name]
-                reference_image.thumbnail((1024, 1024))
+                reference_image = None
+                if config["use_image"]:
+                    reference_image = dataset.sequences_image[sequence_name]
+                    reference_image.thumbnail((1024, 1024))
 
                 # Formatação dinâmica para o modo cego
                 user_text = config["user"]
